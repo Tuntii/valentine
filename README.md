@@ -89,8 +89,9 @@ Tools: `list_panes`, `read_pane`, `run_command`, `send_text`, `open_pane`, `clos
 
 ## Where things live
 
-Everything is under `%APPDATA%\Valentine`: the state database, per-pane histories and the
-WebView2 profile. Delete the folder to start from scratch.
+Valentine's state is under `%APPDATA%\Valentine`: the database and per-pane histories; delete
+the folder to start from scratch. The window's WebView2 profile is in
+`%APPDATA%\valentine.exe` (named after the exe by the webview library).
 
 ## License
 

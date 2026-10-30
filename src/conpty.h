@@ -1,6 +1,11 @@
 // Thin Win32 shim for ConPTY. The pseudo-console and proc-thread-attribute APIs are
-// resolved from kernel32 at runtime, so the build does not depend on how complete the
-// C compiler's Windows headers are (tcc and older mingw lack the ConPTY declarations).
+// resolved at runtime, so the build does not depend on how complete the C compiler's
+// Windows headers are (tcc and older mingw lack the ConPTY declarations).
+//
+// The pseudo console comes from conpty.dll next to the exe when it is there (Microsoft's
+// current ConPTY, the one Windows Terminal and VS Code ship; it runs OpenConsole.exe from
+// the same folder), else from kernel32. Windows 10's built-in ConPTY is years behind and
+// garbles TUIs such as Claude Code: stray cursors, repeated or misplaced redraws.
 #ifndef VALENTINE_CONPTY_H
 #define VALENTINE_CONPTY_H
 
@@ -31,6 +36,57 @@ static void *valentine_k32(const char *name) {
 	return (void *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), name);
 }
 
+typedef struct {
+	valentine_create_pc_t create;
+	valentine_resize_pc_t resize;
+	valentine_close_pc_t close;
+	int bundled; // 1: conpty.dll next to the exe, 0: the system's kernel32 ConPTY
+} valentine_conpty_api;
+
+static valentine_conpty_api valentine_conpty;
+static INIT_ONCE valentine_conpty_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK valentine_conpty_init(PINIT_ONCE once, PVOID param, PVOID *ctx) {
+	(void)once; (void)param; (void)ctx;
+	wchar_t dir[MAX_PATH], path[MAX_PATH + 32];
+	DWORD n = GetModuleFileNameW(NULL, dir, MAX_PATH);
+	while (n > 0 && dir[n - 1] != L'\\') n--;
+	dir[n] = 0;
+	// Both files must be there: conpty.dll starts OpenConsole.exe from its own folder.
+	lstrcpyW(path, dir);
+	lstrcatW(path, L"OpenConsole.exe");
+	HMODULE mod = NULL;
+	if (n > 0 && GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) {
+		lstrcpyW(path, dir);
+		lstrcatW(path, L"conpty.dll");
+		mod = LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+	}
+	if (mod) {
+		valentine_conpty.create = (valentine_create_pc_t)(void *)GetProcAddress(mod, "ConptyCreatePseudoConsole");
+		valentine_conpty.resize = (valentine_resize_pc_t)(void *)GetProcAddress(mod, "ConptyResizePseudoConsole");
+		valentine_conpty.close = (valentine_close_pc_t)(void *)GetProcAddress(mod, "ConptyClosePseudoConsole");
+		valentine_conpty.bundled = 1;
+	}
+	// All three must come from one module: a handle from one is garbage to the other.
+	if (!valentine_conpty.create || !valentine_conpty.resize || !valentine_conpty.close) {
+		valentine_conpty.create = (valentine_create_pc_t)valentine_k32("CreatePseudoConsole");
+		valentine_conpty.resize = (valentine_resize_pc_t)valentine_k32("ResizePseudoConsole");
+		valentine_conpty.close = (valentine_close_pc_t)valentine_k32("ClosePseudoConsole");
+		valentine_conpty.bundled = 0;
+	}
+	return TRUE;
+}
+
+static valentine_conpty_api *valentine_conpty_get(void) {
+	InitOnceExecuteOnce(&valentine_conpty_once, valentine_conpty_init, NULL, NULL);
+	return &valentine_conpty;
+}
+
+// 1 when the bundled conpty.dll is in use.
+static int valentine_conpty_bundled(void) {
+	return valentine_conpty_get()->bundled;
+}
+
 static COORD valentine_coord(int cols, int rows) {
 	COORD c;
 	c.X = (SHORT)cols;
@@ -49,8 +105,8 @@ static wchar_t *valentine_wcsdup(const wchar_t *s) {
 // Returns 0 on success, otherwise a Win32 error code or HRESULT.
 static int valentine_pty_open(int cols, int rows, const wchar_t *cmdline, const wchar_t *cwd,
 		void **out_hpc, void **out_in_w, void **out_out_r, void **out_process) {
-	valentine_create_pc_t create_pc = (valentine_create_pc_t)valentine_k32("CreatePseudoConsole");
-	valentine_close_pc_t close_pc = (valentine_close_pc_t)valentine_k32("ClosePseudoConsole");
+	valentine_create_pc_t create_pc = valentine_conpty_get()->create;
+	valentine_close_pc_t close_pc = valentine_conpty_get()->close;
 	valentine_init_attr_t init_attr = (valentine_init_attr_t)valentine_k32("InitializeProcThreadAttributeList");
 	valentine_update_attr_t update_attr = (valentine_update_attr_t)valentine_k32("UpdateProcThreadAttribute");
 	valentine_delete_attr_t delete_attr = (valentine_delete_attr_t)valentine_k32("DeleteProcThreadAttributeList");
@@ -132,14 +188,14 @@ done:
 }
 
 static int valentine_pty_resize(void *hpc, int cols, int rows) {
-	valentine_resize_pc_t resize_pc = (valentine_resize_pc_t)valentine_k32("ResizePseudoConsole");
+	valentine_resize_pc_t resize_pc = valentine_conpty_get()->resize;
 	if (!hpc || !resize_pc) return -1;
 	return (int)resize_pc(hpc, valentine_coord(cols, rows));
 }
 
 // Closing the pseudo console ends the attached shell and makes the output pipe hit EOF.
 static void valentine_pty_close(void *hpc) {
-	valentine_close_pc_t close_pc = (valentine_close_pc_t)valentine_k32("ClosePseudoConsole");
+	valentine_close_pc_t close_pc = valentine_conpty_get()->close;
 	if (hpc && close_pc) close_pc(hpc);
 }
 

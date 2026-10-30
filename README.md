@@ -46,6 +46,16 @@ Valentine is a single `valentine.exe`. Until there are release builds, build it 
    ```
    Without the WebView2 binding, `-d edge` builds a version that opens in Edge's app mode.
 
+4. Recommended on Windows 10: put Microsoft's current ConPTY next to the exe. The one built
+   into Windows 10 is years old and garbles TUIs such as Claude Code (misplaced cursor,
+   redraws in the wrong place). The script downloads it from NuGet and checks that it is
+   signed by Microsoft:
+   ```
+   powershell -ExecutionPolicy Bypass -File tools\fetch-conpty.ps1
+   ```
+   Valentine uses `conpty.dll` + `OpenConsole.exe` when they sit next to it, and the system
+   ConPTY otherwise.
+
 Run the tests with `v -cc gcc test src`.
 
 ## Using it

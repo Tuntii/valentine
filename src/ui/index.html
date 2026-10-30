@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Valentine</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+:root {
+  --bg: #0c0c0c; --line: #2a2a2a; --accent: #4cc2ff; --fg: #cccccc; --dim: #6f6f6f;
+  --menu: #2b2b2b; --menu-line: #3d3d3d; --menu-hi: #383838; --warn: #f9f1a5;
+  --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+  font: 12px 'Segoe UI Variable Text', 'Segoe UI', sans-serif; }
+
+/* The split tree. Every pane's label sits on the line above it, so the top row
+   needs a little air under the window edge. */
+#root { position: absolute; inset: 8px 0 0 0; display: flex; border-top: 1px solid var(--line); }
+.split, .pane { flex: var(--f) 1 0px; min-width: 0; min-height: 0; display: flex; }
+.split.row { flex-direction: row; }
+.split.col { flex-direction: column; }
+.divider { flex: none; position: relative; z-index: 3; background: var(--line); }
+.row > .divider { width: 1px; cursor: col-resize; }
+.col > .divider { height: 1px; cursor: row-resize; }
+.divider::before { content: ''; position: absolute; } /* wider grab area than the 1px line */
+.row > .divider::before { inset: 0 -4px; }
+.col > .divider::before { inset: -4px 0; }
+.divider:hover, .divider:active { background: var(--accent); }
+
+.pane { position: relative; background: var(--bg); }
+.pane.max { position: fixed; inset: 8px 0 0 0; z-index: 10; border-top: 1px solid var(--line); }
+.term { flex: 1; min-width: 0; min-height: 0; padding: 10px 0 6px 10px; }
+.xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
+.label { position: absolute; top: 0; right: 14px; z-index: 4; transform: translateY(-50%);
+  max-width: calc(100% - 28px); padding: 0 6px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; background: var(--bg); color: var(--dim); font-size: 11px; line-height: 14px;
+  user-select: none; cursor: default; }
+.pane.active > .label { color: var(--accent); }
+.badge:not(:empty) { margin-right: 8px; }
+.badge.running { color: var(--warn); }
+.badge.done { color: #16c60c; }
+.badge.fail { color: #e74856; }
+.badge.claude { color: #d97757; }
+.badge.claude-busy { color: var(--warn); }
+.badge.claude-wait { color: #16c60c; }
+.badge.claude-ask { color: #e74856; }
+
+.countdown { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+  padding: 8px 14px; white-space: nowrap; cursor: pointer; background: var(--menu);
+  border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+.countdown code { font-family: var(--mono); color: var(--warn); }
+
+.menu { position: fixed; z-index: 20; min-width: 232px; padding: 4px; background: var(--menu);
+  border: 1px solid var(--menu-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.menu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; padding: 6px 10px;
+  font: inherit; color: var(--fg); text-align: left; background: none; border: 0; border-radius: 4px; }
+.menu button:hover, .menu button:focus-visible { background: var(--menu-hi); outline: none; }
+.menu .kbd { color: var(--dim); }
+.menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--menu-line); }
+.menu .chips { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; }
+.menu .chips > span { flex: 1; margin-right: 12px; }
+.menu .chips button { width: auto; padding: 3px 8px; border: 1px solid var(--menu-line); }
+.menu .chips button.on { color: var(--accent); border-color: var(--accent); }
+
+.edit { position: absolute; top: 14px; right: 14px; z-index: 6; display: flex; flex-direction: column; gap: 6px;
+  width: min(380px, calc(100% - 28px)); padding: 10px 12px 12px; background: var(--menu);
+  border: 1px solid var(--menu-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.edit label { color: var(--dim); font-size: 11px; }
+.edit input { padding: 6px 8px; font: 12px var(--mono); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--menu-line); border-radius: 4px; outline: none; }
+.edit input:focus { border-color: var(--accent); }
+
+.toast { position: fixed; right: 14px; bottom: 14px; z-index: 30; padding: 8px 14px; color: var(--fg);
+  background: var(--menu); border: 1px solid var(--menu-line); border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-serialize.js"></script>
+<script src="vendor/addon-webgl.js"></script>
+<script src="vendor/addon-web-links.js"></script>
+<script>
+'use strict';
+// Windows Terminal "Campbell" scheme.
+const THEME = {
+  background: '#0c0c0c', foreground: '#cccccc', cursor: '#ffffff', cursorAccent: '#0c0c0c',
+  selectionBackground: '#ffffff40',
+  black: '#0c0c0c', red: '#c50f1f', green: '#13a10e', yellow: '#c19c00',
+  blue: '#0037da', magenta: '#881798', cyan: '#3a96dd', white: '#cccccc',
+  brightBlack: '#767676', brightRed: '#e74856', brightGreen: '#16c60c', brightYellow: '#f9f1a5',
+  brightBlue: '#3b78ff', brightMagenta: '#b4009e', brightCyan: '#61d6d6', brightWhite: '#f2f2f2',
+};
+const DIVIDER = {
+  crash: '\r\n\x1b[1;33m--- [VALENTINE: RESTORED AFTER UNEXPECTED SHUTDOWN] ---\x1b[0m\r\n',
+  clean: '\r\n\x1b[90m--- [VALENTINE: SESSION RESTORED] ---\x1b[0m\r\n',
+};
+// Main screen, default attributes, visible cursor, normal cursor keys and keypad,
+// no bracketed paste, no mouse tracking.
+const RESET_MODES = '\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l';
+const SAVE_EVERY_MS = 1500;
+const SHOW_RUNNING_AFTER_MS = 2000; // quick commands never flash a badge
+const NOTIFY_AFTER_MS = 3000;       // background commands at least this long get "done"
+const AGENT_QUIET_MS = 5000;        // ask_agent: an agent silent this long has finished answering
+const SHELL_NAMES = { powershell: 'PowerShell', cmd: 'cmd', gitbash: 'Git Bash', wsl: 'WSL' };
+const SAVED_SCROLLBACK = 5000;
+
+// ---- layout tree: { pane: id } | { split: 'row' | 'col', ratio, a, b } ----------
+// 'row' puts a left of b, 'col' puts a above b; ratio is a's share.
+
+const clampRatio = r => Math.min(0.9, Math.max(0.1, r));
+const leaf = id => ({ pane: id });
+const chain = (ids, split) => (ids.length === 1 ? leaf(ids[0])
+  : { split, ratio: 1 / ids.length, a: leaf(ids[0]), b: chain(ids.slice(1), split) });
+// Presets take every pane id in order; panes beyond the preset's count join its last strip.
+const PRESETS = {
+  '2×2': { n: 4, build: ids => ({ split: 'col', ratio: 0.5, a: chain(ids.slice(0, 2), 'row'), b: chain(ids.slice(2), 'row') }) },
+  '3+2': { n: 5, build: ids => ({ split: 'col', ratio: 0.5, a: chain(ids.slice(0, 3), 'row'), b: chain(ids.slice(3), 'row') }) },
+  '1+3': { n: 4, build: ids => ({ split: 'row', ratio: 0.55, a: leaf(ids[0]), b: chain(ids.slice(1), 'col') }) },
+};
+
+function leaves(n, out = []) {
+  if (n.pane) out.push(n.pane); else { leaves(n.a, out); leaves(n.b, out); }
+  return out;
+}
+function replaceLeaf(n, id, fn) {
+  if (n.pane) return n.pane === id ? fn(n) : n;
+  return { ...n, a: replaceLeaf(n.a, id, fn), b: replaceLeaf(n.b, id, fn) };
+}
+function removeLeaf(n, id) {
+  if (n.pane) return n.pane === id ? null : n;
+  const a = removeLeaf(n.a, id), b = removeLeaf(n.b, id);
+  return a && b ? { ...n, a, b } : a || b;
+}
+function pathTo(n, id, path = []) {
+  if (n.pane) return n.pane === id ? path : null;
+  return pathTo(n.a, id, [...path, n]) || pathTo(n.b, id, [...path, n]);
+}
+function defaultTree(ids) {
+  if (ids.length <= 3) return chain(ids, 'row');
+  const half = Math.ceil(ids.length / 2);
+  return { split: 'col', ratio: 0.5, a: chain(ids.slice(0, half), 'row'), b: chain(ids.slice(half), 'row') };
+}
+// sanitize turns a saved tree into one that holds exactly `ids`, each once.
+function sanitize(t, ids) {
+  const seen = new Set();
+  const clean = n => {
+    if (!n || typeof n !== 'object') return null;
+    if (typeof n.pane === 'string') {
+      if (!ids.includes(n.pane) || seen.has(n.pane)) return null;
+      seen.add(n.pane);
+      return leaf(n.pane);
+    }
+    if (n.split !== 'row' && n.split !== 'col') return null;
+    const a = clean(n.a), b = clean(n.b);
+    return a && b ? { split: n.split, ratio: clampRatio(+n.ratio || 0.5), a, b } : a || b;
+  };
+  let tree = clean(t);
+  if (!tree) return ids.length ? defaultTree(ids) : null;
+  for (const id of ids.filter(id => !seen.has(id))) {
+    const last = leaves(tree).at(-1);
+    tree = replaceLeaf(tree, last, n => ({ split: 'row', ratio: 0.5, a: n, b: leaf(id) }));
+  }
+  return tree;
+}
+
+// ---- state ------------------------------------------------------------------
+
+const params = new URLSearchParams(location.search);
+const idDecoder = new TextDecoder();
+const panes = [];
+let ws, tree, active, menu, editing, layoutTimer, unclean = false, winBuild = 0;
+let autostart = false, shells = ['powershell'];
+
+const $ = s => document.querySelector(s);
+const byId = id => panes.find(p => p.id === id);
+function el(tag, cls, props) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return Object.assign(e, props);
+}
+function send(msg) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+function toast(text) {
+  $('#toast').textContent = text;
+  $('#toast').hidden = !text;
+}
+
+// ---- connection -----------------------------------------------------------
+
+function connect() {
+  ws = new WebSocket(`ws://127.0.0.1:${params.get('ws')}/?t=${params.get('t')}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { toast(''); send({ type: 'hello' }); };
+  ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) { // PTY output: [id length][id][bytes]
+      const b = new Uint8Array(e.data), n = b[0], p = byId(idDecoder.decode(b.subarray(1, 1 + n)));
+      if (p?.term) { p.term.write(b.subarray(1 + n)); p.dirty = true; p.lastOutputAt = Date.now(); }
+      return;
+    }
+    const m = JSON.parse(e.data);
+    if (m.type === 'state') restore(m);
+    else if (m.type === 'exit') exited(byId(m.pane_id), m.code);
+    else if (m.type === 'claude') onClaude(byId(m.pane_id), m);
+    else if (m.type === 'mcp') onMcp(m);
+  };
+  // The backend outlives the page; a reload rebuilds everything from its state.
+  ws.onclose = () => { toast('Reconnecting…'); setTimeout(() => location.reload(), 1500); };
+}
+
+function restore(m) {
+  if (panes.length) return;
+  unclean = m.unclean;
+  winBuild = m.win_build;
+  autostart = m.autostart;
+  shells = m.shells || shells;
+  const rows = m.panes || [];
+  if (!rows.length) {
+    for (let i = 0; i < 4; i++) panes.push(createPane({}));
+    tree = PRESETS['2×2'].build(panes.map(p => p.id));
+  } else {
+    rows.forEach(r => panes.push(createPane(r)));
+    let saved = null;
+    try { saved = JSON.parse(m.layout || 'null'); } catch { /* fall back to a default grid */ }
+    tree = sanitize(saved, panes.map(p => p.id));
+  }
+  relayout(); // creates the pane rows before any spawn asks for their cwd
+  panes.forEach(start);
+  setActive(panes[0]);
+  panes[0].term.focus();
+}
+
+// ---- panes ----------------------------------------------------------------
+
+function createPane(r) {
+  const p = {
+    id: r.id || 'p' + crypto.randomUUID().slice(0, 8),
+    title: r.title || `Terminal ${panes.length + 1}`,
+    cwd: r.cwd || '', cmd: r.startup_cmd || '', autorun: !!r.autorun, shell: r.shell || '',
+    running: !!r.running, buffer: r.buffer || '',
+    claude: r.claude || '',              // Claude Code session to resume on the next spawn
+    inClaude: !!(r.running && r.claude),
+    pendingCommand: r.pendingCommand || '', // typed once the new shell shows its first prompt
+  };
+  p.el = el('div', 'pane');
+  p.termEl = el('div', 'term');
+  p.label = el('div', 'label', { title: 'Double-click to rename · right-click for options' });
+  p.badge = el('span', 'badge');
+  p.labelText = el('span');
+  p.label.append(p.badge, p.labelText);
+  p.overlay = el('div', 'countdown', { hidden: true, title: 'Click to cancel', onclick: () => cancelCountdown(p) });
+  p.el.append(p.termEl, p.label, p.overlay);
+  p.el.addEventListener('mousedown', () => setActive(p));
+  p.el.addEventListener('contextmenu', e => { e.preventDefault(); setActive(p); openMenu(p, e.clientX, e.clientY); });
+  p.label.ondblclick = () => rename(p);
+  if (p.inClaude) setStatus(p, 'claude');
+  showLabel(p);
+  return p;
+}
+
+// start opens the terminal (the pane must already be in the DOM), replays saved
+// scrollback, then spawns a shell or, after a page reload, re-attaches to the live one.
+function start(p) {
+  const term = p.term = new Terminal({
+    fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, monospace", fontSize: 13,
+    cursorBlink: true, scrollback: 10000, theme: THEME, allowProposedApi: true,
+    // ConPTY before build 21376 does not reflow on resize; xterm must not either or
+    // the two screens drift apart.
+    windowsPty: { backend: 'conpty', buildNumber: winBuild },
+  });
+  p.fit = new FitAddon.FitAddon();
+  p.ser = new SerializeAddon.SerializeAddon();
+  term.loadAddon(p.fit);
+  term.loadAddon(p.ser);
+  term.open(p.termEl);
+  try {
+    const gl = new WebglAddon.WebglAddon();
+    gl.onContextLoss(() => gl.dispose());
+    term.loadAddon(gl);
+  } catch { /* the DOM renderer still works */ }
+  p.fit.fit();
+  // OSC 9;9;"<path>" comes from the prompt hook the backend injects into PowerShell.
+  term.parser.registerOscHandler(9, data => {
+    if (!data.startsWith('9;')) return false;
+    setCwd(p, data.slice(2).replace(/^"|"$/g, ''));
+    return true;
+  });
+  // OSC 133;D[;code]: the shell is back at its prompt (sent by every shell's prompt hook).
+  term.parser.registerOscHandler(133, data => {
+    if (data[0] === 'D') commandFinished(p, parseInt(data.split(';')[1], 10) || 0);
+    return true;
+  });
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => {
+    if (e.ctrlKey) send({ type: 'open', url: uri });
+  }, {
+    hover: () => { p.termEl.title = 'Ctrl+click to open'; },
+    leave: () => { p.termEl.title = ''; },
+  }));
+  term.onTitleChange(t => {
+    p.appTitle = t;
+    if (p.inClaude) showLabel(p);
+  });
+  term.onData(d => input(p, d));
+  term.attachCustomKeyEventHandler(e => clipboardKeys(p, e));
+  term.textarea.addEventListener('focus', () => setActive(p));
+  p.ro = new ResizeObserver(() => scheduleFit(p));
+  p.ro.observe(p.termEl);
+
+  const saved = p.buffer;
+  p.buffer = '';
+  const go = () => (p.running ? sendResize(p) : spawn(p));
+  if (!saved) return go();
+  term.write(saved, () => {
+    if (p.running) return go(); // re-attach: the live screen is already right
+    // A snapshot taken mid-TUI can leave alt screen, mouse or app-cursor modes on and
+    // the cursor mid-screen; reset them and start below the last line with content.
+    term.write(RESET_MODES, () => term.write(belowContent(term) + (unclean ? DIVIDER.crash : DIVIDER.clean), go));
+  });
+}
+
+function belowContent(term) {
+  const b = term.buffer.active;
+  for (let y = b.baseY + term.rows - 1; y > b.baseY + b.cursorY; y--) {
+    if (b.getLine(y)?.translateToString(true)) return `\x1b[${y - b.baseY + 1};1H`;
+  }
+  return '';
+}
+
+function spawn(p) {
+  p.running = true;
+  p.sentCols = p.term.cols;
+  p.sentRows = p.term.rows;
+  send({ type: 'spawn', pane_id: p.id, cols: p.term.cols, rows: p.term.rows });
+  // The id comes from Claude's own hook; still, only plain ids are typed into a shell.
+  if (/^[\w-]{1,64}$/.test(p.claude)) countdown(p, `claude --resume ${p.claude}`, 'Resume Claude Code session');
+  else if (p.autorun && p.cmd) countdown(p, p.cmd, 'Auto-run');
+  // Shells that never report a prompt (no OSC 133) still get the command, a bit later.
+  if (p.pendingCommand) setTimeout(() => runPending(p), 4000);
+}
+
+function runPending(p) {
+  if (!p.pendingCommand || !p.running) return;
+  send({ type: 'input', pane_id: p.id, data: p.pendingCommand + '\r' });
+  p.pendingCommand = '';
+  commandStarted(p);
+}
+
+function input(p, d) {
+  if (!p.running) {
+    if (d.includes('\r')) { p.term.write('\r\n'); spawn(p); }
+    return;
+  }
+  send({ type: 'input', pane_id: p.id, data: d });
+  if (d.includes('\r')) {
+    save(p);
+    commandStarted(p);
+  }
+}
+
+function exited(p, code) {
+  if (!p?.term) return;
+  p.running = false;
+  p.integrated = false;
+  p.inClaude = false;
+  p.busySince = 0;
+  setStatus(p, '');
+  cancelCountdown(p);
+  if (p.respawn) { // killed on purpose, e.g. to switch shells
+    p.respawn = false;
+    p.term.write('\r\n');
+    return spawn(p);
+  }
+  p.term.write(`\r\n\x1b[90m[process exited with code ${code}; press Enter to restart]\x1b[0m\r\n`);
+  save(p);
+}
+
+function save(p) {
+  p.dirty = false;
+  send({ type: 'save_buffer', pane_id: p.id, data: p.ser.serialize({ scrollback: SAVED_SCROLLBACK }) });
+}
+
+function meta(p) {
+  send({ type: 'pane_meta', pane_id: p.id, title: p.title, startup_cmd: p.cmd, autorun: p.autorun, shell: p.shell, slot: panes.indexOf(p) });
+}
+
+// ---- command status (from OSC 133) ------------------------------------------
+// Only panes whose shell has reported at least once are tracked, so a shell without
+// the hook (custom PROMPT_COMMAND, plain WSL) never gets stuck on "running".
+
+function commandStarted(p) {
+  if (!p.integrated || p.busySince || p.inClaude) return;
+  p.busySince = Date.now();
+  setStatus(p, '');
+  clearTimeout(p.busyTimer);
+  p.busyTimer = setTimeout(() => p.busySince && setStatus(p, 'running'), SHOW_RUNNING_AFTER_MS);
+}
+
+function commandFinished(p, code) {
+  p.integrated = true;
+  if (!p.busySince) return runPending(p); // first prompt of a new shell
+  const took = Date.now() - p.busySince;
+  p.busySince = 0;
+  clearTimeout(p.busyTimer);
+  p.onFinish?.(code);
+  const wasClaude = p.claudeRan;
+  p.claudeRan = false;
+  if (p.inClaude || wasClaude) return;
+  if (code) setStatus(p, 'fail', code);
+  else setStatus(p, p !== active && took >= NOTIFY_AFTER_MS ? 'done' : '');
+}
+
+function setStatus(p, status, detail) {
+  p.badge.className = 'badge ' + status;
+  p.badge.title = status === 'claude-ask' ? detail || '' : '';
+  p.badge.textContent = {
+    running: '● running', done: '✓ done', fail: `✕ exit ${detail}`,
+    claude: '✳ Claude', 'claude-busy': '✳ working', 'claude-wait': '✳ your turn', 'claude-ask': '✳ needs you',
+  }[status] || '';
+}
+
+// ---- Claude Code (events from its hooks, see claude.v) -----------------------
+
+function onClaude(p, m) {
+  if (!p) return;
+  switch (m.event) {
+    case 'SessionStart':
+      p.inClaude = p.claudeRan = true;
+      p.claude = m.session_id;
+      clearTimeout(p.busyTimer); // hooks own the badge from here
+      setStatus(p, 'claude');
+      break;
+    case 'UserPromptSubmit':
+      setStatus(p, 'claude-busy');
+      break;
+    case 'Stop':
+      p.stopCount = (p.stopCount || 0) + 1;
+      setStatus(p, p === active ? 'claude' : 'claude-wait');
+      break;
+    case 'Notification':
+      setStatus(p, 'claude-ask', m.message);
+      break;
+    case 'SessionEnd':
+      p.inClaude = false;
+      p.claude = '';
+      setStatus(p, '');
+      break;
+  }
+  showLabel(p);
+}
+
+function setShell(p, shell) {
+  if (shell === (p.shell || 'powershell')) return;
+  p.shell = shell;
+  changed(p); // the backend reads the new shell from the row on the next spawn
+  if (p.running) {
+    p.respawn = true;
+    send({ type: 'kill', pane_id: p.id });
+  }
+}
+
+function setCwd(p, cwd) {
+  if (!cwd || cwd === p.cwd) return;
+  p.cwd = cwd;
+  showLabel(p);
+  send({ type: 'cwd_update', pane_id: p.id, cwd });
+}
+
+function showLabel(p) {
+  const parts = p.cwd.split('\\').filter(Boolean);
+  const cwd = parts.length > 3 ? `${parts[0]}\\…\\${parts.slice(-2).join('\\')}` : p.cwd;
+  const shell = p.shell && p.shell !== 'powershell' ? SHELL_NAMES[p.shell] : '';
+  const app = p.inClaude ? p.appTitle : '';
+  p.labelText.textContent = [p.title, shell, app, cwd, p.autorun && p.cmd ? `⟳ ${p.cmd}` : ''].filter(Boolean).join('  ·  ');
+}
+
+function scheduleFit(p) {
+  if (p.fitPending) return;
+  p.fitPending = true;
+  requestAnimationFrame(() => {
+    p.fitPending = false;
+    if (!p.term || !p.termEl.offsetWidth || !p.termEl.offsetHeight) return;
+    p.fit.fit();
+    if (p.running && (p.term.cols !== p.sentCols || p.term.rows !== p.sentRows)) sendResize(p);
+  });
+}
+
+function sendResize(p) {
+  p.sentCols = p.term.cols;
+  p.sentRows = p.term.rows;
+  send({ type: 'resize', pane_id: p.id, cols: p.term.cols, rows: p.term.rows });
+}
+
+function setActive(p) {
+  if (!p || active === p) return;
+  active?.el.classList.remove('active');
+  active = p;
+  p.el.classList.add('active');
+  if (p.badge.classList.contains('done')) setStatus(p, '');
+  if (p.badge.classList.contains('claude-wait')) setStatus(p, 'claude');
+}
+
+function focusPane(p) {
+  setActive(p);
+  p?.term?.focus();
+}
+
+function countdown(p, cmd, caption) {
+  let n = 3;
+  p.countdown = true;
+  const tick = () => {
+    if (!p.countdown) return;
+    if (n === 0) {
+      cancelCountdown(p);
+      send({ type: 'input', pane_id: p.id, data: cmd + '\r' });
+      commandStarted(p);
+      return;
+    }
+    p.overlay.replaceChildren(`${caption} in ${n}s: `, el('code', '', { textContent: cmd }), '  ·  Press Esc to cancel');
+    p.overlay.hidden = false;
+    n--;
+    p.timer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function cancelCountdown(p) {
+  p.countdown = false;
+  clearTimeout(p.timer);
+  p.overlay.hidden = true;
+}
+
+function clipboardKeys(p, e) {
+  if (p.inClaude && e.type === 'keydown' && e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey) {
+    send({ type: 'input', pane_id: p.id, data: '\n' });
+    e.preventDefault();
+    return false;
+  }
+  if (e.type !== 'keydown' || !e.ctrlKey || e.altKey) return true;
+  const k = e.key.toLowerCase();
+  if (k === 'c' && p.term.hasSelection()) {
+    navigator.clipboard.writeText(p.term.getSelection()).catch(() => {});
+    p.term.clearSelection();
+    e.preventDefault();
+    return false;
+  }
+  // false without preventDefault: xterm skips the key and the browser fires a native paste.
+  if (k === 'v') return false;
+  return true;
+}
+
+// ---- tree operations --------------------------------------------------------
+
+function render() {
+  const build = (n, f) => {
+    if (n.pane) {
+      const p = byId(n.pane);
+      p.el.style.setProperty('--f', f);
+      return p.el;
+    }
+    const box = el('div', 'split ' + n.split);
+    box.style.setProperty('--f', f);
+    const a = build(n.a, n.ratio), b = build(n.b, 1 - n.ratio);
+    box.append(a, divider(n, a, b), b);
+    return box;
+  };
+  const hadFocus = active?.el.contains(document.activeElement);
+  $('#root').replaceChildren(build(tree, 1));
+  if (hadFocus) active.term?.focus(); // moving a node in the DOM drops its focus
+}
+
+function divider(node, a, b) {
+  const g = el('div', 'divider');
+  g.onpointerdown = e => {
+    const horiz = node.split === 'row', box = g.parentElement.getBoundingClientRect();
+    const from = horiz ? box.left : box.top, size = horiz ? box.width : box.height;
+    g.setPointerCapture(e.pointerId);
+    g.onpointermove = ev => {
+      node.ratio = clampRatio(((horiz ? ev.clientX : ev.clientY) - from) / size);
+      a.style.setProperty('--f', node.ratio);
+      b.style.setProperty('--f', 1 - node.ratio);
+    };
+    g.onpointerup = () => { g.onpointermove = g.onpointerup = null; saveLayout(); };
+    e.preventDefault();
+  };
+  return g;
+}
+
+// relayout redraws the tree and keeps pane order (= saved slot) in tree order.
+function relayout() {
+  render();
+  const order = leaves(tree);
+  panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
+  panes.forEach(meta);
+  saveLayout();
+}
+
+function saveLayout() {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(() => send({ type: 'layout', layout: JSON.stringify(tree) }), 300);
+}
+
+function splitPane(p, split, settings = {}, focus = true) {
+  if (!p) return;
+  unmaximize();
+  if (!split) { // auto, like Windows Terminal: split along the longer side
+    const r = p.el.getBoundingClientRect();
+    split = r.width >= r.height * 1.6 ? 'row' : 'col';
+  }
+  const q = createPane(settings);
+  panes.push(q);
+  tree = replaceLeaf(tree, p.id, n => ({ split, ratio: 0.5, a: n, b: leaf(q.id) }));
+  relayout(); // creates q's row
+  if (q.cwd) send({ type: 'cwd_update', pane_id: q.id, cwd: q.cwd }); // read by the spawn
+  start(q);
+  if (focus) focusPane(q);
+  return q;
+}
+
+// ---- MCP tools (requests from `valentine mcp`, see claude.v) -------------------
+
+async function onMcp(m) {
+  let res;
+  try {
+    const { tool, args, from } = JSON.parse(m.payload);
+    if (!Object.hasOwn(MCP_TOOLS, tool)) throw new Error(`unknown tool ${tool}`);
+    res = { text: await MCP_TOOLS[tool](args || {}, from ? byId(from) : null), is_error: false };
+  } catch (e) {
+    res = { text: String(e?.message || e), is_error: true };
+  }
+  send({ type: 'mcp_result', req_id: m.req_id, result: JSON.stringify(res) });
+}
+
+function findPane(ref) {
+  if (!ref) {
+    if (!active) throw new Error('no pane is focused; pass a pane id or name');
+    return active;
+  }
+  const want = String(ref).toLowerCase();
+  const hits = panes.filter(p => p.id === ref || p.title.toLowerCase() === want);
+  if (hits.length === 1) return hits[0];
+  throw new Error(hits.length ? `several panes are named "${ref}"; use its id` : `no pane "${ref}"; call list_panes`);
+}
+
+// paneText returns buffer lines [from, to) as text, joining soft-wrapped lines.
+function paneText(p, from, to) {
+  const b = p.term.buffer.active, out = [];
+  for (let y = Math.max(0, from); y < to; y++) {
+    const line = b.getLine(y);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    if (line.isWrapped && out.length) out[out.length - 1] += text; else out.push(text);
+  }
+  while (out.length && !out.at(-1).trim()) out.pop();
+  return out.join('\n');
+}
+
+const MCP_TOOLS = {
+  list_panes: () => JSON.stringify(panes.map(p => ({
+    id: p.id, name: p.title, cwd: p.cwd, shell: p.shell || 'powershell', focused: p === active,
+    terminal_title: p.appTitle || '', // e.g. what Claude Code, OpenCode or Grok call themselves
+    shell_running: p.running, command_running: !!p.busySince, claude_code: !!p.inClaude,
+    status: p.badge.textContent || 'idle',
+  })), null, 1),
+
+  read_pane: ({ pane, lines = 80 }) => {
+    const p = findPane(pane), end = p.term.buffer.active.baseY + p.term.rows;
+    return paneText(p, end - Math.min(Math.max(1, lines | 0), 2000), end) || '(empty)';
+  },
+
+  run_command: async ({ pane, command, timeout_seconds = 60 }) => {
+    const p = findPane(pane);
+    if (!command) throw new Error('command is required');
+    if (!p.running) throw new Error('that pane has no running shell');
+    if (p.inClaude) throw new Error('Claude Code is running in that pane');
+    if (p.busySince) throw new Error('a command is already running in that pane');
+    if (!p.integrated) throw new Error('that shell does not report when commands finish; use send_text and read_pane');
+    const secs = Math.min(Math.max(1, timeout_seconds | 0), 120);
+    const mark = p.term.registerMarker(0); // the prompt line the command is typed on
+    const finished = new Promise(resolve => { p.onFinish = resolve; });
+    send({ type: 'input', pane_id: p.id, data: command + '\r' });
+    commandStarted(p);
+    const code = await Promise.race([finished, new Promise(r => setTimeout(() => r(null), secs * 1000))]);
+    p.onFinish = null;
+    const b = p.term.buffer.active, cursor = b.baseY + b.cursorY;
+    // Finished: stop before the fresh prompt. Still running: include the cursor line.
+    const out = paneText(p, mark.line, code === null ? cursor + 1 : cursor);
+    mark.dispose();
+    return code === null ? `still running after ${secs}s (left running)\n${out}` : `exit code ${code}\n${out}`;
+  },
+
+  send_text: ({ pane, text, enter = true }) => {
+    const p = findPane(pane);
+    if (!p.running) throw new Error('that pane has no running shell');
+    send({ type: 'input', pane_id: p.id, data: String(text ?? '') + (enter ? '\r' : '') });
+    if (enter) commandStarted(p);
+    return 'sent';
+  },
+
+  open_pane: ({ name, cwd, shell, command, split_from, direction }) => {
+    if (shell && !shells.includes(shell)) throw new Error(`shell must be one of: ${shells.join(', ')}`);
+    const split = direction === 'right' ? 'row' : direction === 'down' ? 'col' : null;
+    const q = splitPane(findPane(split_from), split, { title: name, cwd, shell, pendingCommand: command }, false);
+    return JSON.stringify({ id: q.id, name: q.title });
+  },
+
+  close_pane: ({ pane }) => {
+    closePane(findPane(pane));
+    return 'closed';
+  },
+
+  ask_agent: async ({ pane, message, timeout_seconds = 300 }, from) => {
+    const p = findPane(pane);
+    if (from === p) throw new Error('that is your own pane');
+    if (!p.running) throw new Error('that pane has no running shell');
+    if (!message) throw new Error('message is required');
+    // A waits on B while B asks A would hang both until their timeouts.
+    if (p.asking) throw new Error(`${p.title} is waiting on another agent itself; read_pane it or try later`);
+    const secs = Math.min(Math.max(5, timeout_seconds | 0), 600);
+    // In Claude a raw LF is a newline in the prompt; elsewhere a newline could submit early.
+    const body = p.inClaude ? String(message).replace(/\r\n?/g, '\n') : String(message).replace(/\s*[\r\n]+\s*/g, ' ');
+    if (from) from.asking = true;
+    try {
+      const stops = p.stopCount || 0, sentAt = Date.now();
+      send({ type: 'input', pane_id: p.id, data: `[Valentine message from ${from ? from.title : 'an agent'}] ${body}` });
+      await sleep(300); // some TUIs treat text and Enter arriving together as a paste
+      send({ type: 'input', pane_id: p.id, data: '\r' });
+      const deadline = sentAt + secs * 1000;
+      for (;;) {
+        await sleep(500);
+        // Claude says when it is done; for other agents, output going quiet means done.
+        const done = p.inClaude ? (p.stopCount || 0) > stops
+          : p.lastOutputAt > sentAt + 1000 && Date.now() - p.lastOutputAt > AGENT_QUIET_MS;
+        if (done) return screenText(p);
+        if (!p.running) throw new Error('the shell in that pane exited');
+        if (Date.now() > deadline) return `no answer within ${secs}s; current screen:\n${screenText(p)}`;
+      }
+    } finally {
+      if (from) from.asking = false;
+    }
+  },
+};
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function screenText(p, lines = 80) {
+  const end = p.term.buffer.active.baseY + p.term.rows;
+  return paneText(p, end - lines, end) || '(empty)';
+}
+
+function closePane(p) {
+  if (!p) return;
+  cancelCountdown(p);
+  send({ type: 'close', pane_id: p.id });
+  p.ro?.disconnect();
+  p.term?.dispose();
+  p.el.remove();
+  panes.splice(panes.indexOf(p), 1);
+  tree = removeLeaf(tree, p.id);
+  if (active === p) active = null;
+  if (!tree) { // never leave the valentine empty
+    const q = createPane({});
+    panes.push(q);
+    tree = leaf(q.id);
+    relayout();
+    start(q);
+    return focusPane(q);
+  }
+  relayout();
+  focusPane(panes[0]);
+}
+
+function applyPreset(name) {
+  const pr = PRESETS[name], fresh = [];
+  while (panes.length < pr.n) {
+    const p = createPane({});
+    panes.push(p);
+    fresh.push(p);
+  }
+  unmaximize();
+  tree = pr.build([...leaves(tree || leaf(panes[0].id)), ...fresh.map(p => p.id)].filter((id, i, a) => a.indexOf(id) === i));
+  relayout();
+  fresh.forEach(start);
+}
+
+// moveFocus picks the nearest pane whose box lies wholly in direction (dx, dy).
+function moveFocus(dx, dy) {
+  if (!active || active.el.classList.contains('max')) return;
+  const r = active.el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let best = null, bestD = Infinity;
+  for (const p of panes) {
+    if (p === active) continue;
+    const q = p.el.getBoundingClientRect();
+    const inDir = dx > 0 ? q.left >= r.right - 2 : dx < 0 ? q.right <= r.left + 2
+      : dy > 0 ? q.top >= r.bottom - 2 : q.bottom <= r.top + 2;
+    const d = Math.hypot(q.left + q.width / 2 - cx, q.top + q.height / 2 - cy);
+    if (inDir && d < bestD) { best = p; bestD = d; }
+  }
+  if (best) focusPane(best);
+}
+
+// nudge moves the nearest divider of the given orientation around the active pane.
+function nudge(split, delta) {
+  const node = active && pathTo(tree, active.id)?.reverse().find(n => n.split === split);
+  if (!node) return;
+  node.ratio = clampRatio(node.ratio + delta);
+  render();
+  saveLayout();
+}
+
+function toggleMax(p) {
+  if (!p) return;
+  const on = !p.el.classList.contains('max');
+  unmaximize();
+  p.el.classList.toggle('max', on);
+  p.term?.focus();
+}
+function unmaximize() {
+  panes.forEach(p => p.el.classList.remove('max'));
+}
+
+// ---- menu and inline editor -------------------------------------------------
+
+function openMenu(p, x, y) {
+  closeMenu();
+  const item = (text, kbd, fn) => {
+    const b = el('button', '', { onclick: () => { closeMenu(); fn(); } });
+    b.append(el('span', '', { textContent: text }), el('span', 'kbd', { textContent: kbd }));
+    return b;
+  };
+  const sep = () => el('hr');
+  const chips = (caption, options, current, pick) => {
+    const row = el('div', 'chips');
+    row.append(el('span', '', { textContent: caption }));
+    for (const [value, text] of options) {
+      row.append(el('button', value === current ? 'on' : '', { textContent: text, onclick: () => { closeMenu(); pick(value); } }));
+    }
+    return row;
+  };
+  menu = el('div', 'menu', { role: 'menu' });
+  menu.append(
+    item('Split right', 'Alt+Shift+=', () => splitPane(p, 'row')),
+    item('Split down', 'Alt+Shift+-', () => splitPane(p, 'col')),
+    sep(),
+    ...(p.term.hasSelection() ? [item('Copy', 'Ctrl+C', () => navigator.clipboard.writeText(p.term.getSelection()))] : []),
+    item('Paste', 'Ctrl+V', () => navigator.clipboard.readText().then(t => p.term.paste(t)).catch(() => {})),
+    sep(),
+    item('Rename…', 'Double-click', () => rename(p)),
+    item('Startup command…', '', () => editStartup(p)),
+    item(`${p.autorun ? '✓ ' : ''}Auto-run after restore`, '', () => { p.autorun = !p.autorun; changed(p); }),
+    chips('Shell', shells.map(s => [s, SHELL_NAMES[s] || s]), p.shell || 'powershell', s => setShell(p, s)),
+    sep(),
+    item(p.el.classList.contains('max') ? 'Restore size' : 'Maximize', 'Ctrl+Shift+Enter', () => toggleMax(p)),
+    chips('Layout', Object.keys(PRESETS).map(n => [n, n]), null, applyPreset),
+    sep(),
+    item(`${autostart ? '✓ ' : ''}Start with Windows`, '', () => {
+      autostart = !autostart;
+      send({ type: 'autostart', enabled: autostart });
+    }),
+    item('Close pane', 'Ctrl+Shift+W', () => closePane(p)),
+  );
+  document.body.append(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  menu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  menu.querySelector('button').focus();
+  menu.onkeydown = e => {
+    const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') items[(i + 1) % items.length].focus();
+    else if (e.key === 'ArrowUp') items[(i - 1 + items.length) % items.length].focus();
+    else return;
+    e.preventDefault();
+  };
+}
+function closeMenu() {
+  menu?.remove();
+  menu = null;
+}
+
+function changed(p) {
+  showLabel(p);
+  meta(p);
+}
+
+function rename(p) {
+  editField(p, 'Pane name', p.title, v => { p.title = v || p.title; changed(p); });
+}
+function editStartup(p) {
+  editField(p, 'Startup command, runs after a restore when auto-run is on', p.cmd, v => {
+    if (v && !p.cmd) p.autorun = true; // a newly set command is wanted on restore
+    p.cmd = v;
+    changed(p);
+  });
+}
+
+function editField(p, caption, value, onSave) {
+  editing?.cancel();
+  const box = el('div', 'edit');
+  const input = el('input', '', { type: 'text', value, spellcheck: false });
+  box.append(el('label', '', { textContent: caption }), input);
+  p.el.append(box);
+  const finish = ok => {
+    if (editing?.box !== box) return;
+    editing = null;
+    box.remove();
+    if (ok) onSave(input.value.trim());
+    p.term.focus();
+  };
+  editing = { box, cancel: () => finish(false) };
+  input.onkeydown = e => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  };
+  input.onblur = () => finish(true);
+  input.focus();
+  input.select();
+}
+
+// ---- keys -------------------------------------------------------------------
+
+function keys(e) {
+  if (e.key === 'Escape' && menu) return closeMenu(), true;
+  if (editing && editing.box.contains(e.target)) return false; // the editor owns its keys
+  if (e.key === 'Escape' && panes.some(p => p.countdown)) return panes.forEach(cancelCountdown), true;
+  const k = e.key, code = e.code;
+  if (e.ctrlKey && e.shiftKey && !e.altKey) {
+    if (k === 'Enter') return toggleMax(active), true;
+    if (code === 'KeyW') return closePane(active), true;
+    return false;
+  }
+  if (!e.altKey || e.ctrlKey) return false;
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (arrows[k]) {
+    const [dx, dy] = arrows[k];
+    if (e.shiftKey) nudge(dx ? 'row' : 'col', (dx || dy) * 0.04); else moveFocus(dx, dy);
+    return true;
+  }
+  if (!e.shiftKey) return false;
+  // Keys by character and by numpad, so Turkish-Q and US layouts both work.
+  if (k === '+' || k === '=' || code === 'NumpadAdd') return splitPane(active, 'row'), true;
+  if (k === '-' || k === '_' || code === 'NumpadSubtract') return splitPane(active, 'col'), true;
+  if (code === 'KeyD') return splitPane(active, null), true;
+  return false;
+}
+
+// ---- boot -----------------------------------------------------------------
+
+// Capture phase, so these win over the focused terminal (and over Alt+Left = "Back").
+addEventListener('keydown', e => {
+  if (keys(e)) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+addEventListener('mousedown', e => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
+addEventListener('blur', closeMenu);
+setInterval(() => panes.forEach(p => p.dirty && save(p)), SAVE_EVERY_MS);
+addEventListener('beforeunload', () => panes.forEach(p => p.term && save(p)));
+connect();
+</script>
+</body>
+</html>

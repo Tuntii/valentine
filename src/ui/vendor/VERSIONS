@@ -1,0 +1,5 @@
+Unmodified builds from https://cdn.jsdelivr.net/npm/ (MIT, (c) The xterm.js authors):
+@xterm/xterm@5.5.0            lib/xterm.js, css/xterm.css
+@xterm/addon-fit@0.10.0       lib/addon-fit.js
+@xterm/addon-serialize@0.13.0 lib/addon-serialize.js
+@xterm/addon-webgl@0.18.0     lib/addon-webgl.js

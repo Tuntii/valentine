@@ -1,0 +1,31 @@
+// Windows resources linked into valentine.exe (see src/resources_windows.c.v).
+// 32512 is IDI_APPLICATION: the webview window loads its icon under that id.
+// Rebuild after changing: windres assets/valentine.rc -O coff -o assets/valentine_res.o
+
+32512 ICON "valentine.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Valentine contributors"
+      VALUE "FileDescription", "Valentine"
+      VALUE "FileVersion", "0.1.0"
+      VALUE "InternalName", "valentine"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "valentine.exe"
+      VALUE "ProductName", "Valentine"
+      VALUE "ProductVersion", "0.1.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

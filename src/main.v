@@ -22,7 +22,8 @@ fn main() {
 		else {}
 	}
 	if !single_instance() {
-		fatal('Valentine is already running.')
+		show_existing() // it may be hidden in the tray
+		return
 	}
 	appdata := os.getenv_opt('APPDATA') or { os.home_dir() }
 	data_dir := os.join_path(appdata, 'Valentine')

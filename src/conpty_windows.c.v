@@ -18,7 +18,9 @@ fn C.valentine_pty_exit_code(process voidptr) int
 fn C.valentine_close_handle(h voidptr)
 fn C.valentine_run_and_wait(cmdline &u16) int
 fn C.valentine_single_instance() int
+fn C.valentine_show_existing()
 fn C.valentine_windows_build() int
+fn C.valentine_conpty_bundled() int
 fn C.valentine_autostart_enabled() int
 fn C.valentine_autostart_set(cmdline &u16) int
 fn C.valentine_std_read(buf voidptr, len int) int
@@ -187,6 +189,9 @@ fn available_shells() []string {
 fn prepare_shell_env() {
 	// Started from inside Claude Code, these would make every pane's `claude` a "child
 	// session" that keeps no transcript, so it could never be resumed.
+	if os.getenv('CLAUDECODE') != '' {
+		os.unsetenv('NO_COLOR') // Claude's Bash tool sets it; panes would lose all color
+	}
 	os.unsetenv('CLAUDE_CODE_CHILD_SESSION')
 	os.unsetenv('CLAUDECODE')
 	os.setenv('PROMPT_COMMAND', bash_prompt_command, true)
@@ -242,6 +247,17 @@ fn windows_build() int {
 	return C.valentine_windows_build()
 }
 
+// conpty_build is the build whose ConPTY the panes really get, for xterm.js's reflow
+// setting: the bundled conpty.dll reflows on resize like Windows' own does from 21376.
+fn conpty_build() int {
+	build := windows_build()
+	return if C.valentine_conpty_bundled() == 1 && build < 21376 { 21376 } else { build }
+}
+
 fn single_instance() bool {
 	return C.valentine_single_instance() == 1
+}
+
+fn show_existing() {
+	C.valentine_show_existing()
 }

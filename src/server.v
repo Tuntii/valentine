@@ -1,5 +1,6 @@
 module main
 
+import encoding.base64
 import json
 import net.http
 import net.websocket
@@ -15,6 +16,11 @@ const fit_js = $embed_file('ui/vendor/addon-fit.js')
 const serialize_js = $embed_file('ui/vendor/addon-serialize.js')
 const webgl_js = $embed_file('ui/vendor/addon-webgl.js')
 const links_js = $embed_file('ui/vendor/addon-web-links.js')
+const logo_png = $embed_file('../assets/valentine.png')
+
+// ui_config is what the UI may store for itself (sidebar notes, shortcuts, theme);
+// each value is opaque to the backend.
+const ui_config = ['notes', 'shortcuts', 'theme', 'feeds', 'vault', 'worf', 'relay']
 
 // InMsg is every UI -> backend message; each type uses a subset of the fields.
 struct InMsg {
@@ -34,6 +40,10 @@ struct InMsg {
 	enabled     bool
 	req_id      string // mcp_result: answers a UiRequest
 	result      string
+	name        string // config: one of ui_config
+	value       string
+	method      string // fetch: defaults to GET
+	headers     string // fetch: a JSON object
 }
 
 // UiRequest asks the window to do something only it can (read a terminal's screen,
@@ -52,6 +62,17 @@ struct StateMsg {
 	autostart bool
 	shells    []string
 	panes     []PaneRow
+	config    map[string]string
+}
+
+// FetchMsg answers a fetch: the page cannot read other origins (RSS, worf) itself.
+struct FetchMsg {
+	kind   string @[json: 'type']
+	req_id string
+mut:
+	status int
+	body   string
+	error  string
 }
 
 struct ExitMsg {
@@ -126,6 +147,7 @@ fn asset(path string) ?(string, string) {
 		'/vendor/addon-serialize.js' { return serialize_js.to_string(), js }
 		'/vendor/addon-webgl.js' { return webgl_js.to_string(), js }
 		'/vendor/addon-web-links.js' { return links_js.to_string(), js }
+		'/logo.png' { return logo_png.to_string(), 'image/png' }
 		else { return none }
 	}
 }
@@ -224,6 +246,15 @@ fn (mut app App) handle(mut c websocket.Client, m InMsg) ! {
 		'layout' {
 			app.store.set_config('layout', m.layout)!
 		}
+		'fetch' { // data: the request body, base64
+			spawn app.fetch_url(m.req_id, m.url, m.method, m.headers, m.data)
+		}
+		'config' {
+			if m.name !in ui_config {
+				return error('unknown config ${m.name}')
+			}
+			app.store.set_config('ui_' + m.name, m.value)!
+		}
 		'mcp_result' {
 			app.req_mu.@lock()
 			if ch := app.pending[m.req_id] {
@@ -245,14 +276,19 @@ fn (mut app App) attach(mut c websocket.Client) ! {
 		p.running = p.id in app.ptys
 	}
 	app.pty_mu.unlock()
+	mut config := map[string]string{}
+	for name in ui_config {
+		config[name] = app.store.get_config('ui_' + name)
+	}
 	state := json.encode(StateMsg{
 		kind:    'state'
 		layout:  app.store.get_config('layout')
 		unclean:   app.unclean
-		win_build: windows_build()
+		win_build: conpty_build()
 		autostart: autostart_enabled()
 		shells:    available_shells()
 		panes:     panes
+		config:    config
 	})
 	app.send_mu.@lock()
 	defer {
@@ -385,4 +421,37 @@ fn (mut app App) shutdown() {
 		mut p := app.ptys[id] or { continue }
 		p.kill()
 	}
+}
+
+// fetch_url makes a request for the page (feeds, worf, forwarding a caught webhook to a
+// local server) and sends back a FetchMsg.
+fn (mut app App) fetch_url(req_id string, url string, method string, headers string, body_b64 string) {
+	mut res := FetchMsg{
+		kind:   'fetched'
+		req_id: req_id
+	}
+	do_fetch(mut res, url, method, headers, body_b64) or { res.error = err.msg() }
+	app.send(json.encode(res).bytes(), .text_frame)
+}
+
+fn do_fetch(mut res FetchMsg, url string, method string, headers string, body_b64 string) ! {
+	if !(url.starts_with('https://') || url.starts_with('http://')) {
+		return error('only http and https URLs')
+	}
+	mut header := http.new_header()
+	if headers != '' {
+		header.add_custom_map(json.decode(map[string]string, headers)!)!
+	}
+	r := http.fetch(
+		url:                url
+		method:             if method == '' { .get } else { http.method_from_str(method) }
+		header:             header
+		data:               base64.decode_str(body_b64)
+		validate:           true // a worf or relay token must not go to an impostor
+		read_timeout:       15 * time.second
+		max_retries:        1
+		stop_copying_limit: 4 * 1024 * 1024
+	)!
+	res.status = r.status_code
+	res.body = r.body
 }

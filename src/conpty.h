@@ -315,4 +315,13 @@ static int valentine_single_instance(void) {
 	return m != NULL && GetLastError() != ERROR_ALREADY_EXISTS;
 }
 
+// Asks the running Valentine's window (maybe hidden in the tray) to come to the front.
+#define VALENTINE_SHOW_MSG (WM_APP + 2)
+static void valentine_show_existing(void) {
+	HWND h = FindWindowW(L"webview", L"Valentine");
+	if (!h) return;
+	AllowSetForegroundWindow(ASFW_ANY);
+	PostMessageW(h, VALENTINE_SHOW_MSG, 0, 0);
+}
+
 #endif

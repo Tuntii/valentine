@@ -58,8 +58,12 @@ jobs:
         if: runner.os == 'Windows'
         run: v run "$(v -e 'print(@VEXEROOT)')/vlib/db/sqlite/install_thirdparty_sqlite.vsh"
 
+      # Straight from git, pinned: the vpm index fails to serve its metadata.
       - name: WebView binding
-        run: v install pushpak_jaiswal.webview
+        run: |
+          dir="$HOME/.vmodules/pushpak_jaiswal/webview"
+          git clone -q https://github.com/PUSHPAK-JAISWAL/webview.git "$dir"
+          git -C "$dir" checkout -q e02864b809e2f3aed679a02dd70333eb0b0dc0a4
 
       - name: Test
         run: |

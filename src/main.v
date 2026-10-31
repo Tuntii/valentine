@@ -8,6 +8,9 @@ import time
 const http_port = 47100
 const ws_port = 47101
 
+// Set by release builds (`-d valentine_version=1.2.3`).
+const app_version = $d('valentine_version', 'dev')
+
 fn main() {
 	// Helper modes Claude Code starts from inside a pane; see claude.v.
 	match os.args[1] or { '' } {
@@ -25,9 +28,8 @@ fn main() {
 		show_existing() // it may be hidden in the tray
 		return
 	}
-	appdata := os.getenv_opt('APPDATA') or { os.home_dir() }
-	data_dir := os.join_path(appdata, 'Valentine')
-	migrate_from_cockpit(os.join_path(appdata, 'Cockpit'), data_dir)
+	data_dir := app_dir()
+	migrate_from_cockpit(os.join_path(os.dir(data_dir), 'Cockpit'), data_dir)
 	os.mkdir_all(os.join_path(data_dir, 'history')) or { fatal('cannot create ${data_dir}: ${err}') }
 	prepare_shell_env()
 	mut store := new_storage(os.join_path(data_dir, 'valentine_state.db')) or {
@@ -83,6 +85,12 @@ fn find_edge() string {
 		}
 	}
 	return ''
+}
+
+// app_dir holds Valentine's state: %APPDATA%\Valentine, ~/Library/Application Support/Valentine
+// or $XDG_CONFIG_HOME/Valentine.
+fn app_dir() string {
+	return os.join_path(os.config_dir() or { os.home_dir() }, 'Valentine')
 }
 
 fn wait_for_port(port int) {

@@ -345,7 +345,7 @@ fn (mut app App) pump(id string, mut p Pty) {
 	waiter := spawn p.close_on_exit()
 	mut buf := []u8{len: 32 * 1024}
 	for {
-		n := C.valentine_pty_read(p.out_r, buf.data, buf.len)
+		n := p.read(buf.data, buf.len)
 		if n < 0 {
 			break
 		}

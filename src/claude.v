@@ -19,7 +19,7 @@ const mcp_tools = r'[
 {"name": "read_pane", "description": "Read the last lines of a pane as plain text (screen and scrollback).", "inputSchema": {"type": "object", "properties": {"pane": {"type": "string", "description": "Pane id or name (case-insensitive). Defaults to the focused pane."}, "lines": {"type": "integer", "description": "Lines from the bottom; default 80, max 2000."}}}},
 {"name": "run_command", "description": "Type a command into the shell of a pane, wait for it to finish and return its output and exit code. Refuses when the pane is busy or running Claude Code. On timeout the command keeps running; read it later with read_pane.", "inputSchema": {"type": "object", "properties": {"pane": {"type": "string", "description": "Pane id or name. Defaults to the focused pane."}, "command": {"type": "string"}, "timeout_seconds": {"type": "integer", "description": "Default 60, max 120."}}, "required": ["command"]}},
 {"name": "send_text", "description": "Send keystrokes to a pane, e.g. an answer to a prompt or \u0003 for Ctrl+C. Presses Enter afterwards unless enter is false.", "inputSchema": {"type": "object", "properties": {"pane": {"type": "string", "description": "Pane id or name. Defaults to the focused pane."}, "text": {"type": "string"}, "enter": {"type": "boolean"}}, "required": ["text"]}},
-{"name": "open_pane", "description": "Split a pane and start a new shell in it. Returns the new pane id.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "cwd": {"type": "string", "description": "Working directory (Windows path)."}, "shell": {"type": "string", "enum": ["powershell", "cmd", "gitbash", "wsl"]}, "command": {"type": "string", "description": "Command to run once the shell is ready."}, "split_from": {"type": "string", "description": "Pane to split; defaults to the focused pane."}, "direction": {"type": "string", "enum": ["right", "down"]}}}},
+{"name": "open_pane", "description": "Split a pane and start a new shell in it. Returns the new pane id.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "cwd": {"type": "string", "description": "Working directory (absolute path)."}, "shell": {"type": "string", "description": "powershell, cmd, gitbash or wsl on Windows; zsh, bash or fish elsewhere. Defaults to the default shell."}, "command": {"type": "string", "description": "Command to run once the shell is ready."}, "split_from": {"type": "string", "description": "Pane to split; defaults to the focused pane."}, "direction": {"type": "string", "enum": ["right", "down"]}}}},
 {"name": "ask_agent", "description": "Talk to the AI agent (Claude Code, OpenCode, Grok, ...) running in another pane: types your message there as if the user wrote it, waits until that agent has answered, and returns its screen. Use list_panes to find agents and read_pane to look at their output without interrupting them. Never ask your own pane.", "inputSchema": {"type": "object", "properties": {"pane": {"type": "string", "description": "Pane id or name of the agent to ask."}, "message": {"type": "string"}, "timeout_seconds": {"type": "integer", "description": "Default 300, max 600. On timeout the current screen is returned."}}, "required": ["pane", "message"]}},
 {"name": "close_pane", "description": "Close a pane and terminate its shell.", "inputSchema": {"type": "object", "properties": {"pane": {"type": "string", "description": "Pane id or name."}}, "required": ["pane"]}}
 ]'
@@ -82,7 +82,7 @@ fn write_claude_files(data_dir string, port int, token string) ! {
 }
 
 fn session_file() string {
-	return os.join_path(os.getenv_opt('APPDATA') or { os.home_dir() }, 'Valentine', 'session.json')
+	return os.join_path(app_dir(), 'session.json')
 }
 
 fn post_valentine(path string, body string, pane string, wait time.Duration) !string {
@@ -208,7 +208,7 @@ fn mcp_handle(line string) string {
 				version = '2025-06-18'
 			}
 			return '{"jsonrpc":"2.0","id":${id},"result":{"protocolVersion":${json.encode(version)},' +
-				'"capabilities":{"tools":{}},"serverInfo":{"name":"valentine","version":"0.1.0"}}}'
+				'"capabilities":{"tools":{}},"serverInfo":{"name":"valentine","version":"${app_version}"}}}'
 		}
 		'tools/list' {
 			// One message per line: the readable const must lose its newlines.

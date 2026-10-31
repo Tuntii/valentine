@@ -5,6 +5,7 @@
 #ifndef VALENTINE_WINDOW_H
 #define VALENTINE_WINDOW_H
 
+#ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
 #include "conpty.h"
@@ -122,5 +123,13 @@ static void valentine_window_op(void *hwnd, int op) {
 static int valentine_window_zoomed(void *hwnd) {
 	return IsZoomed((HWND)hwnd) != 0;
 }
+
+#else
+// macOS and Linux keep the native title bar; the UI draws no window buttons there.
+static void valentine_maximize(void *w) { (void)w; }
+static void valentine_window_init(void *w) { (void)w; }
+static void valentine_window_op(void *w, int op) { (void)w; (void)op; }
+static int valentine_window_zoomed(void *w) { (void)w; return 0; }
+#endif
 
 #endif

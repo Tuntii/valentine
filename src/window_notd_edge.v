@@ -23,7 +23,9 @@ fn open_window(url string, data_dir string) {
 	w.set_size(1400, 900, .@none)
 	C.valentine_window_init(hwnd)
 	// The UI's title bar calls this; its presence tells the UI to draw window buttons.
-	w.bind_with_ctx[int]('valentine_window', window_op, hwnd)
+	$if windows {
+		w.bind_with_ctx[int]('valentine_window', window_op, hwnd)
+	}
 	C.valentine_maximize(hwnd)
 	w.navigate(url)
 	w.run()

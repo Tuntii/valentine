@@ -4,3 +4,6 @@
 conpty.dll
 OpenConsole.exe
 .superpowers/
+/valentine
+dist/
+__pycache__/

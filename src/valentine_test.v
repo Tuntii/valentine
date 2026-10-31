@@ -71,13 +71,47 @@ fn test_valid_id() {
 	assert !valid_id('x'.repeat(33))
 }
 
-fn test_encode_ps() {
-	assert encode_ps('a') == 'YQA=' // UTF-16LE 61 00
-	assert encode_ps('ü') == '/AA=' // UTF-16LE FC 00
-	assert encode_ps('😀') == 'PdgA3g==' // surrogate pair D83D DE00
-	assert shell_cmdline('', 'C:\\Users\\O\'Brien\\h.txt').contains('-EncodedCommand ')
-	assert shell_cmdline('cmd', '').starts_with('cmd.exe /k doskey claude=')
-	assert shell_cmdline('cmd', '').contains(' & prompt ')
+fn test_shell_cmdline() {
+	$if windows {
+		assert encode_ps('a') == 'YQA=' // UTF-16LE 61 00
+		assert encode_ps('ü') == '/AA=' // UTF-16LE FC 00
+		assert encode_ps('😀') == 'PdgA3g==' // surrogate pair D83D DE00
+		assert shell_cmdline('', 'C:\\Users\\O\'Brien\\h.txt').contains('-EncodedCommand ')
+		assert shell_cmdline('cmd', '').starts_with('cmd.exe /k doskey claude=')
+		assert shell_cmdline('cmd', '').contains(' & prompt ')
+	} $else {
+		assert sh_quote("/Users/O'Brien/h.txt") == "'/Users/O'\\''Brien/h.txt'"
+		shells := available_shells()
+		// An unknown or uninstalled shell falls back to the default one.
+		assert shell_cmdline('powershell', '/h') == shell_cmdline(shells[0], '/h')
+		if 'bash' in shells {
+			assert shell_cmdline('bash', '/tmp/a b').starts_with("HISTFILE='/tmp/a b' exec ")
+		}
+		if 'zsh' in shells {
+			assert shell_cmdline('zsh', '/h').contains('ZDOTDIR="\$VALENTINE_SHELL_DIR"')
+		}
+	}
+}
+
+// A real shell in a real pty: output arrives, input is typed, the exit code comes back.
+fn test_pty_roundtrip() ! {
+	$if !windows {
+		mut p := open_pty('read x; echo "got:\$x"; exit 3', os.temp_dir(), 80, 24)!
+		waiter := spawn p.close_on_exit()
+		p.write('hello\n')
+		mut out := []u8{}
+		mut buf := []u8{len: 4096}
+		for {
+			n := p.read(buf.data, buf.len)
+			if n < 0 {
+				break
+			}
+			out << buf[..n]
+		}
+		waiter.wait()
+		assert out.bytestr().contains('got:hello')
+		assert p.release() == 3
+	}
 }
 
 fn test_claude_session_column() ! {

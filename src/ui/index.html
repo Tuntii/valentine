@@ -317,7 +317,7 @@ const SAVE_EVERY_MS = 1500;
 const SHOW_RUNNING_AFTER_MS = 2000; // quick commands never flash a badge
 const NOTIFY_AFTER_MS = 3000;       // background commands at least this long get "done"
 const AGENT_QUIET_MS = 5000;        // ask_agent: an agent silent this long has finished answering
-const SHELL_NAMES = { powershell: 'PowerShell', cmd: 'cmd', gitbash: 'Git Bash', wsl: 'WSL' };
+const SHELL_NAMES = { powershell: 'PowerShell', cmd: 'cmd', gitbash: 'Git Bash', wsl: 'WSL', zsh: 'zsh', bash: 'bash', fish: 'fish' };
 const SAVED_SCROLLBACK = 5000;
 
 // ---- layout tree: { pane: id } | { split: 'row' | 'col', ratio, a, b } ----------
@@ -498,11 +498,11 @@ function createPane(r) {
 // scrollback, then spawns a shell or, after a page reload, re-attaches to the live one.
 function start(p) {
   const term = p.term = new Terminal({
-    fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, monospace", fontSize: 13,
+    fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, Menlo, 'DejaVu Sans Mono', monospace", fontSize: 13,
     cursorBlink: true, scrollback: 10000, theme: THEMES[theme].term, allowProposedApi: true,
     // ConPTY before build 21376 does not reflow on resize; xterm must not either or
     // the two screens drift apart.
-    windowsPty: { backend: 'conpty', buildNumber: winBuild },
+    windowsPty: winBuild ? { backend: 'conpty', buildNumber: winBuild } : {}, // 0: a real Unix pty
   });
   p.fit = new FitAddon.FitAddon();
   p.ser = new SerializeAddon.SerializeAddon();
@@ -527,7 +527,7 @@ function start(p) {
     return true;
   });
   term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => {
-    if (e.ctrlKey) send({ type: 'open', url: uri });
+    if (e.ctrlKey || e.metaKey) send({ type: 'open', url: uri });
   }, {
     hover: () => { p.termEl.title = 'Ctrl+click to open'; },
     leave: () => { p.termEl.title = ''; },
@@ -686,7 +686,7 @@ function onClaude(p, m) {
 }
 
 function setShell(p, shell) {
-  if (shell === (p.shell || 'powershell')) return;
+  if (shell === (p.shell || shells[0])) return;
   p.shell = shell;
   changed(p); // the backend reads the new shell from the row on the next spawn
   if (p.running) {
@@ -703,9 +703,11 @@ function setCwd(p, cwd) {
 }
 
 function showLabel(p) {
-  const parts = p.cwd.split('\\').filter(Boolean);
-  const cwd = parts.length > 3 ? `${parts[0]}\\…\\${parts.slice(-2).join('\\')}` : p.cwd;
-  const shell = p.shell && p.shell !== 'powershell' ? SHELL_NAMES[p.shell] : '';
+  const slash = p.cwd.includes('\\') ? '\\' : '/';
+  const parts = p.cwd.split(slash).filter(Boolean);
+  const head = slash === '/' ? '' : parts[0];
+  const cwd = parts.length > 3 ? `${head}${slash}…${slash}${parts.slice(-2).join(slash)}` : p.cwd;
+  const shell = p.shell && p.shell !== shells[0] ? SHELL_NAMES[p.shell] || p.shell : '';
   const app = p.inClaude ? p.appTitle : '';
   p.labelText.textContent = [p.title, shell, app, cwd, p.autorun && p.cmd ? `⟳ ${p.cmd}` : ''].filter(Boolean).join('  ·  ');
   renderTabs();
@@ -774,7 +776,7 @@ function clipboardKeys(p, e) {
     e.preventDefault();
     return false;
   }
-  if (e.type !== 'keydown' || !e.ctrlKey || e.altKey) return true;
+  if (e.type !== 'keydown' || !(e.ctrlKey || e.metaKey) || e.altKey) return true; // metaKey: Cmd on macOS
   const k = e.key.toLowerCase();
   if (k === 'c' && p.term.hasSelection()) {
     navigator.clipboard.writeText(p.term.getSelection()).catch(() => {});
@@ -896,7 +898,7 @@ function paneText(p, from, to) {
 
 const MCP_TOOLS = {
   list_panes: () => JSON.stringify(panes.map(p => ({
-    id: p.id, name: p.title, cwd: p.cwd, shell: p.shell || 'powershell', focused: p === active,
+    id: p.id, name: p.title, cwd: p.cwd, shell: p.shell || shells[0], focused: p === active,
     terminal_title: p.appTitle || '', // e.g. what Claude Code, OpenCode or Grok call themselves
     shell_running: p.running, command_running: !!p.busySince, claude_code: !!p.inClaude,
     status: p.badge.textContent || 'idle',
@@ -1087,12 +1089,12 @@ function openMenu(p, x, y) {
     item('Rename…', 'Double-click', () => rename(p)),
     item('Startup command…', '', () => editStartup(p)),
     item(`${p.autorun ? '✓ ' : ''}Auto-run after restore`, '', () => { p.autorun = !p.autorun; changed(p); }),
-    chips('Shell', shells.map(s => [s, SHELL_NAMES[s] || s]), p.shell || 'powershell', s => setShell(p, s)),
+    chips('Shell', shells.map(s => [s, SHELL_NAMES[s] || s]), p.shell || shells[0], s => setShell(p, s)),
     sep(),
     item(p.el.classList.contains('max') ? 'Restore size' : 'Maximize', 'Ctrl+Shift+Enter', () => toggleMax(p)),
     chips('Layout', Object.keys(PRESETS).map(n => [n, n]), null, applyPreset),
     sep(),
-    item(`${autostart ? '✓ ' : ''}Start with Windows`, '', () => {
+    item(`${autostart ? '✓ ' : ''}Start at login`, '', () => {
       autostart = !autostart;
       send({ type: 'autostart', enabled: autostart });
     }),
@@ -1159,7 +1161,7 @@ function editField(p, caption, value, onSave) {
 
 const isMax = p => p.el.classList.contains('max');
 // A default "Terminal 3" says less than the folder it is in.
-const tabName = p => (/^Terminal \d+$/.test(p.title) && p.cwd ? p.cwd.split('\\').filter(Boolean).at(-1) : p.title);
+const tabName = p => (/^Terminal \d+$/.test(p.title) && p.cwd ? p.cwd.split(/[\\/]/).filter(Boolean).at(-1) || p.cwd : p.title);
 
 function renderTabs() {
   $('#tabs').replaceChildren(...panes.map(p => {

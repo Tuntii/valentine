@@ -95,6 +95,11 @@ fn dim(v int, def int) int {
 	return if v > 1000 { 1000 } else { v }
 }
 
+// read returns bytes read, 0 for nothing yet, -1 at EOF.
+fn (mut p Pty) read(buf voidptr, len int) int {
+	return C.valentine_pty_read(p.out_r, buf, len)
+}
+
 fn (mut p Pty) write(data string) {
 	p.mu.@lock()
 	defer {

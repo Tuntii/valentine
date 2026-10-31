@@ -8,8 +8,10 @@ You need [V 0.5.2](https://github.com/vlang/v/releases/tag/0.5.2) (newer V remov
 module Valentine still uses) and the WebView binding:
 
 ```
-v install pushpak_jaiswal.webview
+git clone https://github.com/PUSHPAK-JAISWAL/webview.git ~/.vmodules/pushpak_jaiswal/webview
 ```
+
+(`v install pushpak_jaiswal.webview` does the same when the V package index is up.)
 
 | Platform | Extra setup | Build |
 |---|---|---|

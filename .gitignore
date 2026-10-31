@@ -3,3 +3,4 @@
 *.tmp.c
 conpty.dll
 OpenConsole.exe
+.superpowers/

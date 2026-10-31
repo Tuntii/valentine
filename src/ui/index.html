@@ -6,8 +6,12 @@
 <link rel="stylesheet" href="vendor/xterm.css">
 <style>
 :root {
-  --bg: #0c0c0c; --line: #2a2a2a; --accent: #4cc2ff; --fg: #cccccc; --dim: #6f6f6f;
-  --menu: #2b2b2b; --menu-line: #3d3d3d; --menu-hi: #383838; --warn: #f9f1a5;
+  /* The theme sets --bg, --fg and --accent; every other surface is mixed from them. */
+  --bg: #0c0c0c; --fg: #cccccc; --accent: #4cc2ff; --warn: #f9f1a5;
+  --line: color-mix(in srgb, var(--fg) 12%, var(--bg)); --dim: color-mix(in srgb, var(--fg) 58%, var(--bg));
+  --menu: color-mix(in srgb, var(--fg) 15%, var(--bg)); --menu-line: color-mix(in srgb, var(--fg) 24%, var(--bg));
+  --menu-hi: color-mix(in srgb, var(--fg) 21%, var(--bg)); --soft: color-mix(in srgb, var(--fg) 7%, var(--bg));
+  --bar: 34px;
   --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
   color-scheme: dark;
 }
@@ -17,8 +21,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
   font: 12px 'Segoe UI Variable Text', 'Segoe UI', sans-serif; }
 
 /* The split tree. Every pane's label sits on the line above it, so the top row
-   needs a little air under the window edge. */
-#root { position: absolute; inset: 8px 0 0 0; display: flex; border-top: 1px solid var(--line); }
+   needs a little air under the title bar. */
+#root { position: absolute; inset: calc(var(--bar) + 7px) 0 0 0; display: flex; border-top: 1px solid var(--line); }
 .split, .pane { flex: var(--f) 1 0px; min-width: 0; min-height: 0; display: flex; }
 .split.row { flex-direction: row; }
 .split.col { flex-direction: column; }
@@ -31,12 +35,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .divider:hover, .divider:active { background: var(--accent); }
 
 .pane { position: relative; background: var(--bg); }
-.pane.max { position: fixed; inset: 8px 0 0 0; z-index: 10; border-top: 1px solid var(--line); }
-.term { flex: 1; min-width: 0; min-height: 0; padding: 10px 0 6px 10px; }
+.pane.max { position: fixed; inset: calc(var(--bar) + 7px) 0 0 0; z-index: 10; border-top: 1px solid var(--line); }
+/* content-box: FitAddon reads this element's height and would count the padding as rows. */
+.term { flex: 1; min-width: 0; min-height: 0; padding: 10px 0 6px 10px; box-sizing: content-box; }
 .xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
 .label { position: absolute; top: 0; right: 14px; z-index: 4; transform: translateY(-50%);
   max-width: calc(100% - 28px); padding: 0 6px; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; background: var(--bg); color: var(--dim); font-size: 11px; line-height: 14px;
+  white-space: nowrap; background: var(--bg); color: var(--dim); font-size: 12px; line-height: 14px;
   user-select: none; cursor: default; }
 .pane.active > .label { color: var(--accent); }
 .badge:not(:empty) { margin-right: 8px; }
@@ -68,16 +73,202 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .edit { position: absolute; top: 14px; right: 14px; z-index: 6; display: flex; flex-direction: column; gap: 6px;
   width: min(380px, calc(100% - 28px)); padding: 10px 12px 12px; background: var(--menu);
   border: 1px solid var(--menu-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
-.edit label { color: var(--dim); font-size: 11px; }
+.edit label { color: var(--dim); font-size: 12px; }
 .edit input { padding: 6px 8px; font: 12px var(--mono); color: var(--fg); background: var(--bg);
   border: 1px solid var(--menu-line); border-radius: 4px; outline: none; }
 .edit input:focus { border-color: var(--accent); }
 
 .toast { position: fixed; right: 14px; bottom: 14px; z-index: 30; padding: 8px 14px; color: var(--fg);
   background: var(--menu); border: 1px solid var(--menu-line); border-radius: 8px; }
+
+/* ---- title bar: pressing its empty parts drags the window (see barDown) ---- */
+#bar { position: fixed; inset: 0 0 auto 0; z-index: 12; display: flex; align-items: center; gap: 6px;
+  height: var(--bar); padding-left: 6px; background: var(--bg); user-select: none; }
+#bar button { font: inherit; color: var(--dim); background: none; border: 0; cursor: default; }
+.icon { flex: none; display: grid; place-items: center; width: 28px; height: 24px; border-radius: 5px; font-size: 14px; }
+.icon:hover, .icon.on { color: var(--fg) !important; background: var(--soft) !important; }
+.logo { flex: none; width: 18px; height: 18px; margin: 0 4px 0 2px; }
+/* Room left of the centered search: half the bar, minus half the search, ☰ + logo and the + button. */
+#tabs { display: flex; gap: 2px; min-width: 0; max-width: calc(50% - min(180px, 17%) - 100px); overflow: hidden; }
+.tab { flex: 0 1 auto; min-width: 48px; max-width: 180px; padding: 3px 10px; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; border-radius: 6px; }
+.tab:hover { color: var(--fg) !important; background: var(--soft) !important; }
+.tab.on { color: var(--fg) !important; background: var(--soft) !important; box-shadow: inset 0 0 0 1px var(--line); }
+.dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; vertical-align: 1px; border-radius: 50%; }
+.dot.claude { background: #d97757; }
+.dot.running, .dot.claude-busy { background: var(--warn); }
+.dot.done, .dot.claude-wait { background: #16c60c; }
+.dot.fail, .dot.claude-ask { background: #e74856; }
+#find { position: absolute; left: 50%; width: min(360px, 34%); transform: translateX(-50%); } /* centered on the window, not the gap */
+#worfBtn, #winctl { margin-left: auto; }
+#worfBtn:not([hidden]) + #winctl { margin-left: 0; }
+#find input { width: 100%; height: 24px; padding: 0 84px 0 10px; font: inherit; color: var(--fg);
+  background: var(--soft); border: 1px solid var(--line); border-radius: 6px; outline: none; }
+#find input:focus { border-color: var(--accent); }
+#find input::placeholder { color: var(--dim); }
+#find kbd { position: absolute; top: 4px; right: 9px; font: 12px 'Segoe UI', sans-serif; color: var(--dim); pointer-events: none; }
+#results { position: absolute; top: 28px; left: 0; right: 0; max-height: 60vh; overflow-y: auto; padding: 4px;
+  background: var(--menu); border: 1px solid var(--menu-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+#results div { display: flex; gap: 12px; padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
+#results div.on { background: var(--menu-hi); }
+#results span { overflow: hidden; text-overflow: ellipsis; }
+#results small { margin-left: auto; color: var(--dim); }
+#winctl { display: flex; align-self: stretch; }
+#winctl button { width: 46px; font: 10px 'Segoe MDL2 Assets'; color: var(--fg); }
+#winctl button:hover { background: var(--soft); }
+#winctl button:last-child:hover { color: #fff; background: #c42b1c; }
+/* Native resize borders cover the sides and bottom; the top edge is ours. */
+.grip { position: fixed; top: 0; z-index: 13; height: 4px; }
+.zoomed .grip { display: none; }
+
+/* ---- sidebar: floats over the panes, so opening it never resizes a terminal ---- */
+#side { position: fixed; top: var(--bar); bottom: 0; left: 0; z-index: 11; display: flex;
+  width: 420px; background: var(--bg); border-right: 1px solid var(--line); border-top: 1px solid var(--line);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, .35); transform: translateX(-105%); transition: transform .15s ease-out; }
+#side.open { transform: none; }
+/* A vertical rail beside the content: every tool stays one click away and the content keeps the full height. */
+#side nav { flex: none; display: flex; flex-direction: column; gap: 2px; width: 104px; padding: 8px 6px;
+  border-right: 1px solid var(--line); }
+#side nav button { position: relative; padding: 7px 10px; font: inherit; text-align: left; color: var(--dim);
+  background: none; border: 0; border-radius: 6px; }
+#side nav button:hover { color: var(--fg); background: var(--soft); }
+#side nav button.on { color: var(--fg); background: var(--soft); }
+#side nav button.on::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
+  border-radius: 2px; background: var(--accent); }
+#side nav [data-tab="look"] { margin-top: auto; } /* settings sit at the bottom, like most apps */
+#side section { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 10px; overflow-y: auto; }
+#side h4 { margin: 4px 0 0; font-size: 12px; font-weight: 400; color: var(--dim); }
+#side textarea, #side input { width: 100%; padding: 6px 8px; font: 12px var(--mono); color: var(--fg);
+  background: var(--soft); border: 1px solid var(--line); border-radius: 6px; outline: none; }
+#side textarea:focus, #side input:focus { border-color: var(--accent); }
+#side textarea { flex: 1; resize: none; line-height: 1.5; }
+.item { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border-radius: 6px; }
+.item:hover { background: var(--soft); }
+.item div { flex: 1; min-width: 0; }
+.item b, .item code { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.item b { font-weight: 600; }
+.item code { font: 12px var(--mono); color: var(--dim); }
+.item button { padding: 2px 6px; font: inherit; color: var(--dim); background: none; border: 0; border-radius: 4px; }
+.item button:hover { color: var(--fg); background: var(--menu-hi); }
+.add { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.add button, .theme { font: inherit; color: var(--fg); background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.add button { align-self: flex-end; padding: 5px 14px; }
+.add button:hover, .theme:hover { border-color: var(--menu-line); }
+.empty { padding: 4px 2px; color: var(--dim); line-height: 1.5; }
+.theme { display: flex; align-items: center; gap: 10px; padding: 8px 10px; text-align: left; }
+.theme.on { border-color: var(--accent); }
+.theme span:first-child { flex: 1; }
+.swatch { display: flex; gap: 3px; }
+#side .row { display: flex; align-items: center; gap: 6px; } /* not .split.row: that is the pane tree */
+#side select { flex: 1; min-width: 0; padding: 5px 6px; font: inherit; color: var(--fg); background: var(--soft);
+  border: 1px solid var(--line); border-radius: 6px; outline: none; }
+#side .row .icon { color: var(--dim); background: none; border: 0; font: inherit; }
+.msg { line-height: 1.5; }
+.msg.err { color: #e74856; }
+.item.crit b { color: #e74856; }
+.item.warn b { color: var(--warn); }
+.verdict { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+#side details summary { color: var(--dim); cursor: default; }
+#hookList pre { margin: 4px 0 0; padding: 8px; max-height: 260px; overflow: auto; font: 12px var(--mono);
+  white-space: pre-wrap; word-break: break-all; background: var(--soft); border-radius: 6px; }
+.swatch i { width: 10px; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .15); }
 </style>
 </head>
 <body>
+<header id="bar">
+  <button id="sideBtn" class="icon" title="Sidebar (Ctrl+Shift+B)" aria-label="Toggle sidebar">☰</button>
+  <img class="logo" src="logo.png" alt="">
+  <nav id="tabs" aria-label="Panes"></nav>
+  <button id="newBtn" class="icon" title="New pane (Alt+Shift+D)" aria-label="New pane">+</button>
+  <div id="find">
+    <input id="findInput" type="text" placeholder="Search panes, shortcuts, commands…" spellcheck="false" autocomplete="off" aria-label="Search">
+    <kbd>Ctrl+Shift+K</kbd>
+    <div id="results" role="listbox" hidden></div>
+  </div>
+  <button id="worfBtn" class="tab" title="worf status" hidden><i class="dot"></i>worf</button>
+  <div id="winctl" hidden>
+    <button data-op="1" title="Minimize" aria-label="Minimize">&#xE921;</button>
+    <button data-op="2" id="maxBtn" title="Maximize" aria-label="Maximize">&#xE922;</button>
+    <button data-op="3" title="Close to tray" aria-label="Close to tray">&#xE8BB;</button>
+  </div>
+</header>
+<div class="grip" data-op="6" style="left: 0; width: 8px; cursor: nw-resize" hidden></div>
+<div class="grip" data-op="5" style="left: 8px; right: 8px; cursor: n-resize" hidden></div>
+<div class="grip" data-op="7" style="right: 0; width: 8px; cursor: ne-resize" hidden></div>
+<aside id="side" aria-label="Sidebar" inert>
+  <nav>
+    <button data-tab="notes">Notes</button>
+    <button data-tab="shortcuts">Shortcuts</button>
+    <button data-tab="vault">Passwords</button>
+    <button data-tab="feeds">Feeds</button>
+    <button data-tab="worf">worf</button>
+    <button data-tab="hooks">Webhooks</button>
+    <button data-tab="look">Appearance</button>
+  </nav>
+  <section data-tab="notes">
+    <textarea id="notes" spellcheck="false" placeholder="Anything you need to remember. Saved as you type."></textarea>
+  </section>
+  <section data-tab="shortcuts" hidden>
+    <div id="shortcutList"></div>
+    <form class="add" id="shortcutForm">
+      <h4>New shortcut: runs in a new pane</h4>
+      <input name="name" placeholder="Name, e.g. worf" required>
+      <input name="command" placeholder="Command, e.g. ssh root@worf.rustapi.cloud" required>
+      <input name="cwd" placeholder="Folder (optional)">
+      <button>Add</button>
+    </form>
+  </section>
+  <section data-tab="vault" hidden></section>
+  <section data-tab="feeds" hidden>
+    <div class="row">
+      <select id="feedPick" aria-label="Feed"></select>
+      <button id="feedReload" class="icon" title="Reload" aria-label="Reload feed">↻</button>
+      <button id="feedRemove" class="icon" title="Remove this feed" aria-label="Remove feed">✕</button>
+    </div>
+    <div id="feedItems"></div>
+    <form class="add" id="feedForm">
+      <h4>Add an RSS or Atom feed</h4>
+      <input name="url" type="url" placeholder="https://news.ycombinator.com/rss" required>
+      <button>Add</button>
+    </form>
+  </section>
+  <section data-tab="worf" hidden>
+    <div id="worfBody"></div>
+    <details id="worfSetup">
+      <summary>Connection</summary>
+      <form class="add" id="worfForm">
+        <h4>Panel address</h4>
+        <input name="url" type="url" value="https://worf.rustapi.cloud" required>
+        <h4>API token (worf → Tokens). Stored unencrypted, like notes.</h4>
+        <input name="token" type="password" autocomplete="off" placeholder="paste token">
+        <button>Save</button>
+      </form>
+    </details>
+  </section>
+  <section data-tab="hooks" hidden>
+    <div class="row">
+      <input id="hookName" placeholder="hook name, e.g. stripe" aria-label="Hook name" spellcheck="false">
+      <button id="hookCopy" class="icon" style="width: auto; padding: 0 8px" title="Copy this hook's public URL">Copy URL</button>
+    </div>
+    <div id="hookList"></div>
+    <details id="hookSetup">
+      <summary>Relay</summary>
+      <form class="add" id="hookForm">
+        <h4>Relay address</h4>
+        <input name="url" type="url" value="https://valentine.rustapi.cloud" required>
+        <h4>Relay token (RELAY_TOKEN on the server). Stored unencrypted, like notes.</h4>
+        <input name="token" type="password" autocomplete="off" placeholder="paste token">
+        <h4>Forward each new webhook to (optional)</h4>
+        <input name="forward" type="url" placeholder="http://localhost:3000/webhook">
+        <button>Save</button>
+      </form>
+    </details>
+  </section>
+  <section data-tab="look" hidden>
+    <h4>Theme</h4>
+    <div id="themeList" style="display: flex; flex-direction: column; gap: 6px"></div>
+  </section>
+</aside>
 <div id="root"></div>
 <div id="toast" class="toast" hidden></div>
 
@@ -88,14 +279,32 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 <script src="vendor/addon-web-links.js"></script>
 <script>
 'use strict';
-// Windows Terminal "Campbell" scheme.
-const THEME = {
-  background: '#0c0c0c', foreground: '#cccccc', cursor: '#ffffff', cursorAccent: '#0c0c0c',
-  selectionBackground: '#ffffff40',
-  black: '#0c0c0c', red: '#c50f1f', green: '#13a10e', yellow: '#c19c00',
-  blue: '#0037da', magenta: '#881798', cyan: '#3a96dd', white: '#cccccc',
-  brightBlack: '#767676', brightRed: '#e74856', brightGreen: '#16c60c', brightYellow: '#f9f1a5',
-  brightBlue: '#3b78ff', brightMagenta: '#b4009e', brightCyan: '#61d6d6', brightWhite: '#f2f2f2',
+// Terminal colour schemes; accent tints the UI. The first is the default.
+const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
+const scheme = (background, foreground, accent, normal, bright) => ({
+  accent,
+  term: {
+    background, foreground, cursor: foreground, cursorAccent: background, selectionBackground: '#ffffff40',
+    ...Object.fromEntries(ANSI.map((c, i) => [c, normal[i]])),
+    ...Object.fromEntries(ANSI.map((c, i) => ['bright' + c[0].toUpperCase() + c.slice(1), bright[i]])),
+  },
+});
+const THEMES = {
+  Campbell: scheme('#0c0c0c', '#cccccc', '#4cc2ff',
+    ['#0c0c0c', '#c50f1f', '#13a10e', '#c19c00', '#0037da', '#881798', '#3a96dd', '#cccccc'],
+    ['#767676', '#e74856', '#16c60c', '#f9f1a5', '#3b78ff', '#b4009e', '#61d6d6', '#f2f2f2']),
+  'One Half Dark': scheme('#282c34', '#dcdfe4', '#61afef',
+    ['#282c34', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#dcdfe4'],
+    ['#5a6374', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#dcdfe4']),
+  Dracula: scheme('#282a36', '#f8f8f2', '#bd93f9',
+    ['#21222c', '#ff5555', '#50fa7b', '#f1fa8c', '#bd93f9', '#ff79c6', '#8be9fd', '#f8f8f2'],
+    ['#6272a4', '#ff6e6e', '#69ff94', '#ffffa5', '#d6acff', '#ff92df', '#a4ffff', '#ffffff']),
+  'Tokyo Night': scheme('#1a1b26', '#c0caf5', '#7aa2f7',
+    ['#15161e', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#a9b1d6'],
+    ['#414868', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5']),
+  'Gruvbox Dark': scheme('#282828', '#ebdbb2', '#fabd2f',
+    ['#282828', '#cc241d', '#98971a', '#d79921', '#458588', '#b16286', '#689d6a', '#a89984'],
+    ['#928374', '#fb4934', '#b8bb26', '#fabd2f', '#83a598', '#d3869b', '#8ec07c', '#ebdbb2']),
 };
 const DIVIDER = {
   crash: '\r\n\x1b[1;33m--- [VALENTINE: RESTORED AFTER UNEXPECTED SHUTDOWN] ---\x1b[0m\r\n',
@@ -177,6 +386,8 @@ const idDecoder = new TextDecoder();
 const panes = [];
 let ws, tree, active, menu, editing, layoutTimer, unclean = false, winBuild = 0;
 let autostart = false, shells = ['powershell'];
+let theme = 'Campbell', shortcuts = [], zoomed = false;
+const nativeWindow = window.valentine_window; // absent in the Edge app-window fallback
 
 const $ = s => document.querySelector(s);
 const byId = id => panes.find(p => p.id === id);
@@ -210,6 +421,7 @@ function connect() {
     else if (m.type === 'exit') exited(byId(m.pane_id), m.code);
     else if (m.type === 'claude') onClaude(byId(m.pane_id), m);
     else if (m.type === 'mcp') onMcp(m);
+    else if (m.type === 'fetched') onFetched(m);
   };
   // The backend outlives the page; a reload rebuilds everything from its state.
   ws.onclose = () => { toast('Reconnecting…'); setTimeout(() => location.reload(), 1500); };
@@ -221,6 +433,23 @@ function restore(m) {
   winBuild = m.win_build;
   autostart = m.autostart;
   shells = m.shells || shells;
+  const cfg = m.config || {};
+  try { shortcuts = JSON.parse(cfg.shortcuts || '[]'); } catch { /* start over */ }
+  if (!Array.isArray(shortcuts)) shortcuts = [];
+  $('#notes').value = cfg.notes || '';
+  renderShortcuts();
+  feeds = parseList(cfg.feeds, DEFAULT_FEEDS);
+  renderFeedPick();
+  vault.stored = parseList(cfg.vault, null);
+  renderVault();
+  worf = { url: 'https://worf.rustapi.cloud', token: '', ...parseList(cfg.worf, {}) };
+  $('#worfForm').elements.namedItem('url').value = worf.url;
+  $('#worfForm').elements.namedItem('token').value = worf.token;
+  pollWorf();
+  relay = { url: 'https://valentine.rustapi.cloud', token: '', forward: '', ...parseList(cfg.relay, {}) };
+  for (const k of ['url', 'token', 'forward']) $('#hookForm').elements.namedItem(k).value = relay[k];
+  pollRelay();
+  applyTheme(THEMES[cfg.theme] ? cfg.theme : 'Campbell', false); // before any terminal opens
   const rows = m.panes || [];
   if (!rows.length) {
     for (let i = 0; i < 4; i++) panes.push(createPane({}));
@@ -270,7 +499,7 @@ function createPane(r) {
 function start(p) {
   const term = p.term = new Terminal({
     fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, monospace", fontSize: 13,
-    cursorBlink: true, scrollback: 10000, theme: THEME, allowProposedApi: true,
+    cursorBlink: true, scrollback: 10000, theme: THEMES[theme].term, allowProposedApi: true,
     // ConPTY before build 21376 does not reflow on resize; xterm must not either or
     // the two screens drift apart.
     windowsPty: { backend: 'conpty', buildNumber: winBuild },
@@ -423,6 +652,7 @@ function setStatus(p, status, detail) {
     running: '● running', done: '✓ done', fail: `✕ exit ${detail}`,
     claude: '✳ Claude', 'claude-busy': '✳ working', 'claude-wait': '✳ your turn', 'claude-ask': '✳ needs you',
   }[status] || '';
+  renderTabs();
 }
 
 // ---- Claude Code (events from its hooks, see claude.v) -----------------------
@@ -478,6 +708,7 @@ function showLabel(p) {
   const shell = p.shell && p.shell !== 'powershell' ? SHELL_NAMES[p.shell] : '';
   const app = p.inClaude ? p.appTitle : '';
   p.labelText.textContent = [p.title, shell, app, cwd, p.autorun && p.cmd ? `⟳ ${p.cmd}` : ''].filter(Boolean).join('  ·  ');
+  renderTabs();
 }
 
 function scheduleFit(p) {
@@ -504,6 +735,7 @@ function setActive(p) {
   p.el.classList.add('active');
   if (p.badge.classList.contains('done')) setStatus(p, '');
   if (p.badge.classList.contains('claude-wait')) setStatus(p, 'claude');
+  renderTabs();
 }
 
 function focusPane(p) {
@@ -599,6 +831,7 @@ function relayout() {
   panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
   panes.forEach(meta);
   saveLayout();
+  renderTabs();
 }
 
 function saveLayout() {
@@ -922,16 +1155,617 @@ function editField(p, caption, value, onSave) {
   input.select();
 }
 
+// ---- title bar --------------------------------------------------------------
+
+const isMax = p => p.el.classList.contains('max');
+// A default "Terminal 3" says less than the folder it is in.
+const tabName = p => (/^Terminal \d+$/.test(p.title) && p.cwd ? p.cwd.split('\\').filter(Boolean).at(-1) : p.title);
+
+function renderTabs() {
+  $('#tabs').replaceChildren(...panes.map(p => {
+    const t = el('button', 'tab' + (p === active ? ' on' : ''), { title: p.labelText.textContent, onclick: () => pickPane(p) });
+    const status = p.badge.classList[1];
+    if (status) t.append(el('i', 'dot ' + status));
+    t.append(tabName(p));
+    return t;
+  }));
+}
+
+// pickPane focuses p; with a pane maximized, p takes its place, like switching tabs.
+function pickPane(p) {
+  if (panes.some(isMax) && !isMax(p)) toggleMax(p);
+  focusPane(p);
+}
+
+// winOp asks the native window for a title-bar action (see window.h) and refreshes the
+// maximized state it answers with. Op 0 only asks.
+function winOp(op) {
+  nativeWindow?.(op).then(z => {
+    zoomed = !!z;
+    document.body.classList.toggle('zoomed', zoomed);
+    $('#maxBtn').innerHTML = zoomed ? '&#xE923;' : '&#xE922;';
+    $('#maxBtn').title = zoomed ? 'Restore' : 'Maximize';
+  });
+}
+
+let lastBarDown = 0;
+function barDown(e) {
+  if (e.button !== 0 || e.target.closest('button, input, #results')) return;
+  e.preventDefault();
+  // Windows' move loop swallows the mouse-up, so the page never sees a dblclick.
+  const now = Date.now();
+  if (now - lastBarDown < 400) {
+    lastBarDown = 0;
+    return winOp(2);
+  }
+  lastBarDown = now;
+  winOp(4);
+}
+
+// ---- sidebar ----------------------------------------------------------------
+
+function toggleSide(open = !$('#side').classList.contains('open'), tab) {
+  const side = $('#side');
+  if (tab) showSideTab(tab);
+  side.classList.toggle('open', open);
+  side.inert = !open;
+  $('#sideBtn').classList.toggle('on', open);
+  if (open) side.querySelector('section:not([hidden]) :is(textarea, input)')?.focus();
+  else active?.term?.focus();
+}
+
+function showSideTab(tab) {
+  for (const n of document.querySelectorAll('#side [data-tab]')) {
+    if (n.tagName === 'SECTION') n.hidden = n.dataset.tab !== tab;
+    else n.classList.toggle('on', n.dataset.tab === tab);
+  }
+  if (tab === 'feeds' && !feedCache[feedPick.value]) loadFeed();
+}
+
+let notesTimer = 0;
+function saveNotes() {
+  clearTimeout(notesTimer);
+  notesTimer = 0;
+  send({ type: 'config', name: 'notes', value: $('#notes').value });
+}
+
+function renderShortcuts() {
+  const list = $('#shortcutList');
+  if (!shortcuts.length) {
+    return list.replaceChildren(el('div', 'empty', { textContent: 'Servers you SSH into, commands you run often. Each opens in a new pane.' }));
+  }
+  list.replaceChildren(...shortcuts.map((s, i) => {
+    const run = () => runShortcut(s);
+    const row = el('div', 'item', { tabIndex: 0, title: 'Open in a new pane', onclick: run, onkeydown: e => e.key === 'Enter' && run() });
+    const text = el('div');
+    text.append(el('b', '', { textContent: s.name }), el('code', '', { textContent: s.command }));
+    row.append(text, el('button', '', {
+      textContent: '✕', title: 'Remove', ariaLabel: `Remove ${s.name}`,
+      onclick: e => { e.stopPropagation(); shortcuts.splice(i, 1); saveShortcuts(); },
+    }));
+    return row;
+  }));
+}
+
+function saveShortcuts() {
+  send({ type: 'config', name: 'shortcuts', value: JSON.stringify(shortcuts) });
+  renderShortcuts();
+}
+
+function runShortcut(s) {
+  toggleSide(false);
+  splitPane(active || panes[0], null, { title: s.name, cwd: s.cwd || '', pendingCommand: s.command });
+}
+
+function applyTheme(name, persist = true) {
+  theme = name;
+  const t = THEMES[name], css = document.documentElement.style;
+  css.setProperty('--bg', t.term.background);
+  css.setProperty('--fg', t.term.foreground);
+  css.setProperty('--accent', t.accent);
+  panes.forEach(p => { if (p.term) p.term.options.theme = t.term; });
+  if (persist) send({ type: 'config', name: 'theme', value: name });
+  $('#themeList').replaceChildren(...Object.entries(THEMES).map(([n, s]) => {
+    const b = el('button', 'theme' + (n === theme ? ' on' : ''), { onclick: () => applyTheme(n) });
+    const swatch = el('span', 'swatch');
+    for (const c of ['background', 'foreground', 'red', 'green', 'yellow', 'blue', 'magenta']) {
+      swatch.append(el('i', '', { style: `background: ${s.term[c]}` }));
+    }
+    b.append(el('span', '', { textContent: n }), swatch);
+    return b;
+  }));
+}
+
+// parseList reads a stored JSON config value, falling back when it is missing or broken.
+function parseList(json, fallback) {
+  if (!json) return fallback;
+  try { return JSON.parse(json) ?? fallback; } catch { return fallback; }
+}
+
+// ---- backend fetch: the page cannot read other origins (feeds, worf) itself ----
+
+const fetches = new Map();
+let fetchSeq = 0;
+
+// backendFetch has the backend make a request; body64 is the request body in base64.
+function backendFetch(url, { method = 'GET', headers = {}, body64 = '' } = {}) {
+  const req_id = 'f' + ++fetchSeq;
+  send({ type: 'fetch', req_id, url, method, headers: JSON.stringify(headers), data: body64 });
+  return new Promise((resolve, reject) => {
+    fetches.set(req_id, { resolve, reject });
+    setTimeout(() => fetches.delete(req_id) && reject(new Error('no answer in 30 s')), 30000);
+  });
+}
+
+function onFetched(m) {
+  const f = fetches.get(m.req_id);
+  if (!f) return;
+  fetches.delete(m.req_id);
+  if (m.error) f.reject(new Error(m.error)); else f.resolve(m);
+}
+
+const ago = when => {
+  const s = (Date.now() - new Date(when)) / 1000;
+  if (!(s >= 0)) return '';
+  return s < 3600 ? `${Math.max(1, s / 60 | 0)}m ago` : s < 86400 ? `${s / 3600 | 0}h ago` : `${s / 86400 | 0}d ago`;
+};
+const host = url => { try { return new URL(url).host.replace(/^www\./, ''); } catch { return ''; } };
+const openUrl = url => /^https?:\/\//.test(url) && send({ type: 'open', url });
+
+// ---- feeds ------------------------------------------------------------------
+
+const DEFAULT_FEEDS = [{ name: 'Hacker News', url: 'https://news.ycombinator.com/rss' }];
+const feedPick = $('#feedPick'), feedCache = {};
+let feeds = [];
+
+function parseFeed(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
+  if (doc.querySelector('parsererror') || !doc.querySelector('rss, feed, RDF')) throw new Error('not an RSS or Atom feed');
+  const text = (n, sel) => n.querySelector(sel)?.textContent.trim() || '';
+  return {
+    title: text(doc, 'channel > title') || text(doc, 'feed > title'),
+    items: [...doc.querySelectorAll('item, entry')].slice(0, 60).map(n => ({
+      title: text(n, 'title'),
+      link: text(n, 'link') || n.querySelector('link')?.getAttribute('href') || '',
+      date: text(n, 'pubDate') || text(n, 'updated') || text(n, 'published'),
+      comments: text(n, 'comments'),
+    })),
+  };
+}
+
+function renderFeedPick() {
+  feedPick.replaceChildren(...feeds.map(f => el('option', '', { value: f.url, textContent: f.name || host(f.url) })));
+  $('#feedRemove').disabled = !feeds.length;
+  if (!feeds.length) $('#feedItems').replaceChildren(el('div', 'empty', { textContent: 'No feeds yet. Add one below.' }));
+}
+
+async function loadFeed() {
+  const url = feedPick.value, box = $('#feedItems');
+  if (!url) return;
+  box.replaceChildren(el('div', 'empty', { textContent: 'Loading…' }));
+  try {
+    const r = await backendFetch(url);
+    if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
+    feedCache[url] = parseFeed(r.body);
+  } catch (e) {
+    if (feedPick.value === url) box.replaceChildren(el('div', 'msg err', { textContent: `Could not load: ${e.message}` }));
+    return;
+  }
+  if (feedPick.value === url) showFeed(feedCache[url]);
+}
+
+function showFeed(feed) {
+  $('#feedItems').replaceChildren(...feed.items.map(it => {
+    const row = el('div', 'item', { tabIndex: 0, title: it.title, onclick: () => openUrl(it.link), onkeydown: e => e.key === 'Enter' && openUrl(it.link) });
+    const text = el('div');
+    text.append(el('b', '', { textContent: it.title }), el('code', '', { textContent: [host(it.link), ago(it.date)].filter(Boolean).join(' · ') }));
+    row.append(text);
+    if (it.comments && it.comments !== it.link) {
+      row.append(el('button', '', { textContent: 'comments', onclick: e => { e.stopPropagation(); openUrl(it.comments); } }));
+    }
+    return row;
+  }));
+}
+
+function saveFeeds() {
+  send({ type: 'config', name: 'feeds', value: JSON.stringify(feeds) });
+  renderFeedPick();
+}
+
+feedPick.onchange = () => (feedCache[feedPick.value] ? showFeed(feedCache[feedPick.value]) : loadFeed());
+$('#feedReload').onclick = loadFeed;
+$('#feedRemove').onclick = () => {
+  const f = feeds.find(f => f.url === feedPick.value);
+  if (!f || !confirm(`Remove the feed "${f.name}"?`)) return;
+  feeds.splice(feeds.indexOf(f), 1);
+  saveFeeds();
+  if (feeds.length) feedPick.onchange();
+};
+$('#feedForm').onsubmit = async e => {
+  e.preventDefault();
+  const url = e.target.elements.namedItem('url').value.trim();
+  if (feeds.some(f => f.url === url)) return;
+  const status = el('div', 'empty', { textContent: 'Checking the feed…' });
+  e.target.append(status);
+  try {
+    const r = await backendFetch(url);
+    if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
+    feedCache[url] = parseFeed(r.body);
+  } catch (err) {
+    status.className = 'msg err';
+    status.textContent = `Not added: ${err.message}`;
+    return;
+  }
+  status.remove();
+  e.target.reset();
+  feeds.push({ name: feedCache[url].title || host(url), url });
+  saveFeeds();
+  feedPick.value = url;
+  showFeed(feedCache[url]);
+};
+
+// ---- password vault: AES-GCM under a key derived from the master password -------
+// Windows' credential store is not used (it loses its keys on some machines). The
+// key lives only in memory while unlocked; the stored blob is { salt, iv, data }.
+
+const VAULT_IDLE_MS = 10 * 60 * 1000;
+const vault = { stored: null, key: null, items: [], timer: 0 };
+const b64 = buf => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function vaultKey(password, salt) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+async function sealVault() {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, vault.key, new TextEncoder().encode(JSON.stringify(vault.items)));
+  vault.stored = { v: 1, salt: vault.stored.salt, iv: b64(iv), data: b64(data) };
+  send({ type: 'config', name: 'vault', value: JSON.stringify(vault.stored) });
+}
+
+async function unlockVault(password) {
+  const key = await vaultKey(password, unb64(vault.stored.salt));
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(vault.stored.iv) }, key, unb64(vault.stored.data));
+  vault.key = key; // decrypt throws on a wrong password, so we only get here with the right one
+  vault.items = JSON.parse(new TextDecoder().decode(plain));
+}
+
+function lockVault() {
+  clearTimeout(vault.timer);
+  vault.key = null;
+  vault.items = [];
+  renderVault();
+}
+
+function touchVault() {
+  clearTimeout(vault.timer);
+  vault.timer = setTimeout(lockVault, VAULT_IDLE_MS);
+}
+
+// copySecret puts text on the clipboard and clears it after 30 s if it is still there.
+function copySecret(text) {
+  touchVault();
+  navigator.clipboard.writeText(text).then(() => setTimeout(() => {
+    navigator.clipboard.readText().then(t => t === text && navigator.clipboard.writeText('')).catch(() => {});
+  }, 30000)).catch(() => {});
+}
+
+function vaultForm(caption, fields, submit, onSubmit) {
+  const f = el('form', 'add');
+  const msg = el('div', 'msg err');
+  f.append(el('h4', '', { textContent: caption }),
+    ...fields.map(([name, placeholder, type = 'text']) => el('input', '', { name, placeholder, type, autocomplete: 'off', required: name !== 'user' })),
+    msg, el('button', '', { textContent: submit }));
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const v = Object.fromEntries(fields.map(([name]) => [name, f.elements.namedItem(name).value]));
+    f.querySelector('button').disabled = true;
+    try { await onSubmit(v, f); } catch (err) { msg.textContent = err.message; }
+    f.querySelector('button').disabled = false;
+  };
+  return f;
+}
+
+function renderVault() {
+  const box = $('section[data-tab="vault"]');
+  if (!vault.stored) {
+    return box.replaceChildren(
+      el('div', 'empty', { textContent: 'Passwords are encrypted with a master password you set here. Valentine cannot recover them if you forget it.' }),
+      vaultForm('Create the vault', [['pw', 'Master password (at least 10 characters)', 'password'], ['again', 'Repeat it', 'password']], 'Create', async v => {
+        if (v.pw.length < 10) throw new Error('Use at least 10 characters.');
+        if (v.pw !== v.again) throw new Error('The two passwords differ.');
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        vault.stored = { salt: b64(salt) };
+        vault.key = await vaultKey(v.pw, salt);
+        vault.items = [];
+        await sealVault();
+        touchVault();
+        renderVault();
+      }));
+  }
+  if (!vault.key) {
+    const f = vaultForm('Locked', [['pw', 'Master password', 'password']], 'Unlock', async v => {
+      try { await unlockVault(v.pw); } catch { throw new Error('Wrong master password.'); }
+      touchVault();
+      renderVault();
+    });
+    box.replaceChildren(f);
+    return f.querySelector('input').focus();
+  }
+  const list = vault.items.map((it, i) => {
+    const row = el('div', 'item');
+    const text = el('div');
+    text.append(el('b', '', { textContent: it.name }), el('code', '', { textContent: it.user || '—' }));
+    const btn = (label, title, fn) => el('button', '', { textContent: label, title, onclick: fn });
+    row.append(text,
+      ...(it.user ? [btn('user', 'Copy the user name', () => copySecret(it.user))] : []),
+      btn('copy', 'Copy the password (cleared from the clipboard after 30 s)', () => copySecret(it.secret)),
+      btn('type', 'Type the password into the focused pane, without Enter', () => {
+        touchVault();
+        if (active?.running) send({ type: 'input', pane_id: active.id, data: it.secret });
+        active?.term?.focus();
+      }),
+      btn('✕', 'Delete', async () => {
+        if (!confirm(`Delete "${it.name}"?`)) return;
+        vault.items.splice(i, 1);
+        await sealVault();
+        touchVault();
+        renderVault();
+      }));
+    return row;
+  });
+  box.replaceChildren(
+    el('div', 'row', {}),
+    ...(list.length ? list : [el('div', 'empty', { textContent: 'Empty. Add a password below.' })]),
+    vaultForm('Add a password', [['name', 'Name, e.g. worf root'], ['user', 'User (optional)'], ['secret', 'Password', 'password']], 'Add', async (v, f) => {
+      vault.items.push({ name: v.name.trim(), user: v.user.trim(), secret: v.secret });
+      await sealVault();
+      touchVault();
+      f.reset();
+      renderVault();
+    }));
+  box.firstChild.append(el('span', 'empty', { textContent: `${list.length} saved`, style: 'flex: 1' }),
+    el('button', 'icon', { textContent: 'Lock', style: 'width: auto; padding: 0 8px', onclick: lockVault }));
+}
+
+// ---- worf: is anything on the servers broken? -----------------------------------
+
+const WORF_POLL_MS = 60 * 1000;
+let worf = {}, worfTimer = 0;
+
+async function pollWorf() {
+  clearTimeout(worfTimer);
+  const btn = $('#worfBtn'), body = $('#worfBody'), dot = btn.querySelector('.dot');
+  btn.hidden = !worf.token;
+  if (!worf.token) {
+    $('#worfSetup').open = true;
+    return body.replaceChildren(el('div', 'empty', { textContent: 'Create an API token in worf and paste it under Connection; Valentine then checks alerts and site probes every minute.' }));
+  }
+  worfTimer = setTimeout(pollWorf, WORF_POLL_MS);
+  const get = async path => {
+    const r = await backendFetch(worf.url.replace(/\/+$/, '') + path, { headers: { Authorization: 'Bearer ' + worf.token } });
+    if (r.status === 401 || r.status === 403) throw new Error('worf rejected the token');
+    if (r.status !== 200) throw new Error(`HTTP ${r.status} from ${path}`);
+    return JSON.parse(r.body);
+  };
+  let alerts, probes;
+  try {
+    [alerts, probes] = await Promise.all([get('/api/admin/alerts'), get('/api/admin/probes')]);
+  } catch (e) {
+    dot.className = 'dot fail';
+    btn.title = `worf: ${e.message}`;
+    return body.replaceChildren(el('div', 'msg err', { textContent: e.message }));
+  }
+  const open = (alerts.open || []).filter(a => !a.muted);
+  const down = Object.entries(probes || {}).filter(([, p]) => p && !p.ok);
+  const crit = open.filter(a => a.severity === 'critical').length + down.length;
+  const warn = open.filter(a => a.severity === 'warning').length;
+  const [level, word] = crit ? ['fail', `${crit} critical`] : warn ? ['running', `${warn} warning${warn > 1 ? 's' : ''}`] : ['done', 'All good'];
+  dot.className = 'dot ' + level;
+  btn.title = `worf: ${word}`;
+  const verdict = el('div', 'verdict');
+  verdict.append(el('i', 'dot ' + level), word);
+  body.replaceChildren(verdict,
+    ...down.map(([site, p]) => row('crit', site, p.error || `HTTP ${p.status}`)),
+    ...open.map(a => row(a.severity === 'critical' ? 'crit' : a.severity === 'warning' ? 'warn' : '', a.title, [a.detail, ago(a.started_at)].filter(Boolean).join(' · '))),
+    el('button', '', { textContent: 'Open worf', className: 'theme', onclick: () => openUrl(worf.url) }),
+    el('div', 'empty', { textContent: `Checked ${new Date().toLocaleTimeString()}` }));
+  function row(cls, title, detail) {
+    const r = el('div', 'item ' + cls), t = el('div');
+    t.append(el('b', '', { textContent: title }), el('code', '', { textContent: detail }));
+    r.append(t);
+    return r;
+  }
+}
+
+$('#worfBtn').onclick = () => toggleSide(true, 'worf');
+$('#worfForm').onsubmit = e => {
+  e.preventDefault();
+  const f = e.target.elements;
+  worf = { url: f.namedItem('url').value.trim(), token: f.namedItem('token').value.trim() };
+  send({ type: 'config', name: 'worf', value: JSON.stringify(worf) });
+  $('#worfSetup').open = false;
+  pollWorf();
+};
+
+// ---- webhooks: caught by the relay on the server (relay/relay.py), pulled here ----
+
+const RELAY_POLL_MS = 5000, HOOKS_KEPT = 100;
+// Headers that describe the hop to the relay, not the webhook itself.
+const HOP_HEADERS = new Set(['host', 'content-length', 'connection', 'x-real-ip', 'x-forwarded-for',
+  'x-forwarded-proto', 'accept-encoding', 'transfer-encoding']);
+let relay = {}, relayTimer = 0, relayAfter = 0, relayError = '';
+const hooks = [], openHooks = new Set(); // newest first; ids shown expanded
+
+async function pollRelay() {
+  clearTimeout(relayTimer);
+  if (!relay.token) {
+    $('#hookSetup').open = true;
+    return renderHooks();
+  }
+  let changed = false;
+  try {
+    const r = await backendFetch(`${relay.url.replace(/\/+$/, '')}/api/events?after=${relayAfter}`,
+      { headers: { Authorization: 'Bearer ' + relay.token } });
+    if (r.status === 401) throw new Error('the relay rejected the token');
+    if (r.status !== 200) throw new Error(`HTTP ${r.status} from the relay`);
+    const backlog = relayAfter === 0; // caught before this start: shown, not replayed
+    for (const ev of JSON.parse(r.body)) {
+      relayAfter = Math.max(relayAfter, ev.id);
+      hooks.unshift(ev);
+      changed = true;
+      if (relay.forward && !backlog) forwardHook(ev);
+    }
+    hooks.splice(HOOKS_KEPT);
+    changed ||= relayError !== '';
+    relayError = '';
+  } catch (e) {
+    changed = relayError !== e.message;
+    relayError = e.message;
+  }
+  if (changed) renderHooks();
+  relayTimer = setTimeout(pollRelay, RELAY_POLL_MS);
+}
+
+// forwardHook replays a caught webhook to the local URL, with its method, headers
+// (signatures included) and body, so a dev server sees what the service sent.
+async function forwardHook(ev) {
+  const headers = Object.fromEntries(ev.headers.filter(([k]) => !HOP_HEADERS.has(k.toLowerCase())));
+  const url = relay.forward + (ev.query ? (relay.forward.includes('?') ? '&' : '?') + ev.query : '');
+  ev.forward = '→ sending…';
+  renderHooks();
+  try {
+    const r = await backendFetch(url, { method: ev.method, headers, body64: ev.body });
+    ev.forward = `→ ${r.status}`;
+  } catch (e) {
+    ev.forward = `→ failed: ${e.message}`;
+  }
+  renderHooks();
+}
+
+function hookText(ev) {
+  let body = new TextDecoder().decode(unb64(ev.body)); // binary bodies show replacement characters
+  try { body = JSON.stringify(JSON.parse(body), null, 2); } catch { /* not JSON */ }
+  return [`${ev.method} ${ev.path}${ev.query ? '?' + ev.query : ''}`, ...ev.headers.map(([k, v]) => `${k}: ${v}`), '', body].join('\n');
+}
+
+function renderHooks() {
+  const box = $('#hookList');
+  if (!relay.token) {
+    return box.replaceChildren(el('div', 'empty', { textContent: 'Webhooks sent to the relay on your server show up here. Set its token under Relay.' }));
+  }
+  const head = relayError ? [el('div', 'msg err', { textContent: relayError })] : [];
+  if (!hooks.length) {
+    return box.replaceChildren(...head, el('div', 'empty', { textContent: 'Nothing caught yet. Name a hook above, copy its URL and give it to the service.' }));
+  }
+  box.replaceChildren(...head, ...hooks.map(ev => {
+    const toggle = () => { if (!openHooks.delete(ev.id)) openHooks.add(ev.id); renderHooks(); };
+    const row = el('div', 'item', { tabIndex: 0, style: 'flex-wrap: wrap', onclick: toggle, onkeydown: e => e.key === 'Enter' && toggle() });
+    const text = el('div');
+    text.append(el('b', '', { textContent: `${ev.method} ${ev.name}` }),
+      el('code', '', { textContent: [ago(ev.at * 1000), ev.ip, ev.forward].filter(Boolean).join(' · ') }));
+    row.append(text);
+    if (relay.forward) {
+      row.append(el('button', '', { textContent: 'resend', title: `Send again to ${relay.forward}`, onclick: e => { e.stopPropagation(); forwardHook(ev); } }));
+    }
+    if (openHooks.has(ev.id)) {
+      row.append(el('pre', '', { textContent: hookText(ev), style: 'flex-basis: 100%', onclick: e => e.stopPropagation() }));
+    }
+    return row;
+  }));
+}
+
+$('#hookCopy').onclick = () => {
+  const name = $('#hookName').value.trim().replace(/[^\w.-]+/g, '-') || 'test';
+  navigator.clipboard.writeText(`${relay.url.replace(/\/+$/, '')}/h/${name}`).catch(() => {});
+  $('#hookCopy').textContent = 'Copied';
+  setTimeout(() => { $('#hookCopy').textContent = 'Copy URL'; }, 1500);
+};
+$('#hookForm').onsubmit = e => {
+  e.preventDefault();
+  const f = e.target.elements;
+  relay = { url: f.namedItem('url').value.trim(), token: f.namedItem('token').value.trim(), forward: f.namedItem('forward').value.trim() };
+  send({ type: 'config', name: 'relay', value: JSON.stringify(relay) });
+  $('#hookSetup').open = false;
+  relayAfter = 0;
+  hooks.length = 0;
+  pollRelay();
+};
+
+// ---- search (Ctrl+Shift+K) --------------------------------------------------
+
+const findInput = $('#findInput');
+let found = [], pick = 0;
+
+function searchItems() {
+  return [
+    ...panes.map(p => ({ text: tabName(p), hint: 'Pane', run: () => pickPane(p) })),
+    ...shortcuts.map(s => ({ text: s.name, hint: s.command, run: () => runShortcut(s) })),
+    { text: 'Split right', hint: 'Alt+Shift+=', run: () => splitPane(active, 'row') },
+    { text: 'Split down', hint: 'Alt+Shift+-', run: () => splitPane(active, 'col') },
+    { text: 'Notes', hint: 'Sidebar', run: () => toggleSide(true, 'notes') },
+    { text: 'Shortcuts', hint: 'Sidebar', run: () => toggleSide(true, 'shortcuts') },
+    { text: 'Passwords', hint: 'Sidebar', run: () => toggleSide(true, 'vault') },
+    { text: 'Feeds', hint: 'Sidebar', run: () => toggleSide(true, 'feeds') },
+    { text: 'worf', hint: 'Sidebar', run: () => toggleSide(true, 'worf') },
+    { text: 'Webhooks', hint: 'Sidebar', run: () => toggleSide(true, 'hooks') },
+    { text: 'Appearance', hint: 'Sidebar', run: () => toggleSide(true, 'look') },
+    ...Object.keys(PRESETS).map(n => ({ text: `Layout ${n}`, hint: 'Layout', run: () => applyPreset(n) })),
+    ...Object.keys(THEMES).map(n => ({ text: `Theme: ${n}`, hint: 'Appearance', run: () => applyTheme(n) })),
+  ];
+}
+
+function showResults() {
+  const q = findInput.value.trim().toLowerCase();
+  found = searchItems().filter(it => `${it.text} ${it.hint}`.toLowerCase().includes(q));
+  pick = Math.min(pick, Math.max(0, found.length - 1));
+  $('#results').replaceChildren(...found.map((it, i) => {
+    const row = el('div', i === pick ? 'on' : '', { role: 'option', onmousedown: e => { e.preventDefault(); runFound(i); } });
+    row.append(el('span', '', { textContent: it.text }), el('small', '', { textContent: it.hint }));
+    return row;
+  }));
+  $('#results').hidden = !found.length;
+  $('#results .on')?.scrollIntoView({ block: 'nearest' });
+}
+
+function runFound(i) {
+  const it = found[i];
+  findInput.blur(); // closes the list
+  active?.term?.focus();
+  it?.run();
+}
+
+findInput.onfocus = findInput.oninput = () => { pick = 0; showResults(); };
+findInput.onblur = () => {
+  findInput.value = '';
+  $('#results').hidden = true;
+};
+findInput.onkeydown = e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    pick = (pick + (e.key === 'ArrowDown' ? 1 : -1) + found.length) % Math.max(1, found.length);
+    showResults();
+  } else if (e.key === 'Enter') runFound(pick);
+  else if (e.key === 'Escape') { findInput.blur(); active?.term?.focus(); }
+  else return;
+  e.preventDefault();
+};
+
 // ---- keys -------------------------------------------------------------------
 
 function keys(e) {
   if (e.key === 'Escape' && menu) return closeMenu(), true;
   if (editing && editing.box.contains(e.target)) return false; // the editor owns its keys
+  if (e.key === 'Escape' && $('#side').contains(e.target)) return toggleSide(false), true;
   if (e.key === 'Escape' && panes.some(p => p.countdown)) return panes.forEach(cancelCountdown), true;
   const k = e.key, code = e.code;
   if (e.ctrlKey && e.shiftKey && !e.altKey) {
     if (k === 'Enter') return toggleMax(active), true;
     if (code === 'KeyW') return closePane(active), true;
+    if (code === 'KeyK') return findInput.focus(), true;
+    if (code === 'KeyB') return toggleSide(), true;
     return false;
   }
   if (!e.altKey || e.ctrlKey) return false;
@@ -957,8 +1791,35 @@ addEventListener('keydown', e => {
 }, true);
 addEventListener('mousedown', e => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
 addEventListener('blur', closeMenu);
+$('#sideBtn').onclick = () => toggleSide();
+$('#newBtn').onclick = () => splitPane(active || panes[0], null);
+$('#side nav').onclick = e => { const tab = e.target.closest('button')?.dataset.tab; if (tab) showSideTab(tab); };
+showSideTab('notes');
+$('#notes').oninput = () => { clearTimeout(notesTimer); notesTimer = setTimeout(saveNotes, 500); };
+$('#shortcutForm').onsubmit = e => {
+  e.preventDefault();
+  const f = e.target.elements, name = f.namedItem('name').value.trim(), command = f.namedItem('command').value.trim();
+  if (!name || !command) return;
+  shortcuts.push({ name, command, cwd: f.namedItem('cwd').value.trim() });
+  e.target.reset();
+  saveShortcuts();
+};
+if (nativeWindow) { // our own window: its caption is gone, so the bar does the caption's job
+  $('#winctl').hidden = false;
+  $('#winctl').onclick = e => { const op = e.target.closest('button')?.dataset.op; if (op) winOp(+op); };
+  $('#bar').onmousedown = barDown;
+  for (const g of document.querySelectorAll('.grip')) {
+    g.hidden = false;
+    g.onmousedown = e => { if (e.button === 0) { e.preventDefault(); winOp(+g.dataset.op); } };
+  }
+  addEventListener('resize', () => winOp(0));
+  winOp(0);
+}
 setInterval(() => panes.forEach(p => p.dirty && save(p)), SAVE_EVERY_MS);
-addEventListener('beforeunload', () => panes.forEach(p => p.term && save(p)));
+addEventListener('beforeunload', () => {
+  panes.forEach(p => p.term && save(p));
+  if (notesTimer) saveNotes();
+});
 connect();
 </script>
 </body>

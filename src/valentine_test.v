@@ -1,6 +1,8 @@
 module main
 
 import db.sqlite
+import encoding.base64
+import net.http
 import os
 
 fn test_storage_roundtrip() ! {
@@ -129,4 +131,32 @@ fn test_migrate_from_cockpit() ! {
 	os.mkdir_all(old)!
 	migrate_from_cockpit(old, new)
 	assert os.is_dir(old)
+}
+
+struct EchoHandler {}
+
+fn (mut h EchoHandler) handle(req http.Request) http.Response {
+	sig := req.header.get_custom('Stripe-Signature') or { '' }
+	return http.new_response(body: '${req.method} ${sig} ${req.data}')
+}
+
+// Forwarding a caught webhook must keep its method, signature header and body.
+fn test_fetch_forwards_method_headers_and_body() ! {
+	mut server := &http.Server{
+		addr:    '127.0.0.1:47199'
+		handler: EchoHandler{}
+	}
+	spawn server.listen_and_serve()
+	server.wait_till_running()!
+	defer {
+		server.close()
+	}
+	mut res := FetchMsg{}
+	do_fetch(mut res, 'http://127.0.0.1:47199/hook?a=1', 'PUT', '{"Stripe-Signature":"t=1,v1=abc"}',
+		base64.encode_str('{"id":"evt_1"}'))!
+	assert res.status == 200
+	assert res.body == 'PUT t=1,v1=abc {"id":"evt_1"}'
+	if _ := do_fetch(mut res, 'file:///C:/Windows/win.ini', '', '', '') {
+		assert false, 'non-http URL fetched'
+	}
 }

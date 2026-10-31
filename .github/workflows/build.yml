@@ -64,6 +64,8 @@ jobs:
           dir="$HOME/.vmodules/pushpak_jaiswal/webview"
           git clone -q https://github.com/PUSHPAK-JAISWAL/webview.git "$dir"
           git -C "$dir" checkout -q e02864b809e2f3aed679a02dd70333eb0b0dc0a4
+          # V's automatic build of webview.o lacks GTK's include paths; this adds them.
+          if [ "$RUNNER_OS" = Linux ]; then v run "$dir/build.vsh"; fi
 
       - name: Test
         run: |

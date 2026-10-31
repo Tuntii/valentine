@@ -17,7 +17,7 @@ git clone https://github.com/PUSHPAK-JAISWAL/webview.git ~/.vmodules/pushpak_jai
 |---|---|---|
 | Windows | MinGW-w64 with `gcc`, `g++`, `windres` ([WinLibs](https://winlibs.com)); `v run <v>/vlib/db/sqlite/install_thirdparty_sqlite.vsh` | `v -cc gcc -subsystem windows -o valentine.exe src` |
 | macOS | Xcode command line tools | `v -o valentine src` |
-| Linux | `sudo apt install libsqlite3-dev pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev` | `v -o valentine src` |
+| Linux | `sudo apt install libsqlite3-dev pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev`, then once `v run ~/.vmodules/pushpak_jaiswal/webview/build.vsh` | `v -o valentine src` |
 
 `-d edge` builds without the WebView binding (Windows: Edge app window, elsewhere: your browser).
 

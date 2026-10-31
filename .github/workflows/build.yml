@@ -34,9 +34,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: vlang/setup-v@v1.4
-        with:
-          version: ${{ env.V_VERSION }}
+      # The release archive, not setup-v: building an old V tag from source fails against
+      # the current C bootstrap.
+      - name: Install V
+        run: |
+          case "$RUNNER_OS" in
+            Windows) zip=v_windows.zip ;;
+            macOS) zip=v_macos_arm64.zip ;;
+            *) zip=v_linux.zip ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/v.zip" "https://github.com/vlang/v/releases/download/$V_VERSION/$zip"
+          if [ "$RUNNER_OS" = Windows ]; then 7z x -bso0 -o"$RUNNER_TEMP" "$RUNNER_TEMP/v.zip"; else unzip -q "$RUNNER_TEMP/v.zip" -d "$RUNNER_TEMP"; fi
+          echo "$RUNNER_TEMP/v" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/v/v" version
 
       - name: Linux packages
         if: runner.os == 'Linux'

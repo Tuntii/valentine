@@ -25,7 +25,7 @@ jobs:
             asset: valentine-windows-x64.zip
           - os: ubuntu-22.04 # oldest glibc still supported, so the binary runs on more distros
             asset: valentine-linux-x64.tar.gz
-          - os: macos-14
+          - os: macos-15
             asset: valentine-macos-arm64.tar.gz
     runs-on: ${{ matrix.os }}
     defaults:

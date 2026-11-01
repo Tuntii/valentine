@@ -70,6 +70,7 @@ jobs:
       - name: Test
         run: |
           if [ "$RUNNER_OS" = Windows ]; then v -cc gcc test src; else v test src; fi
+          node src/ui/js/test.js
 
       - name: Build
         run: |

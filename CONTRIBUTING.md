@@ -20,8 +20,13 @@ git clone https://github.com/PUSHPAK-JAISWAL/webview.git ~/.vmodules/pushpak_jai
 | Linux | `sudo apt install libsqlite3-dev pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev`, then once `v run ~/.vmodules/pushpak_jaiswal/webview/build.vsh` | `v -o valentine src` |
 
 `-d edge` builds without the WebView binding (Windows: Edge app window, elsewhere: your browser).
+`-d devtools` turns on the WebView's DevTools (F12) for profiling and debugging the UI.
 
-Run the tests with `v test src` (`v -cc gcc test src` on Windows). CI runs them on all three
+The UI is `src/ui/index.html`, `src/ui/app.css` and the scripts in `src/ui/js/`, which the
+backend serves as one script (`/app.js`, in the order listed in `server.v`). Errors from both
+sides go to `valentine.log` next to the state database.
+
+Run the tests with `v test src` (`v -cc gcc test src` on Windows) and `node src/ui/js/test.js`. CI runs them on all three
 platforms for every pull request.
 
 ## Where things are

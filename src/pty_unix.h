@@ -53,6 +53,12 @@ static int valentine_pty_resize(int fd, int cols, int rows) {
 
 // Returns bytes read, 0 when nothing arrived within 200 ms, -1 at EOF. Polling lets the
 // reader notice the shell's exit even when a background job still holds the terminal.
+// Bytes already waiting on the pty, so the reader can batch them into one message.
+static int valentine_pty_available(int fd) {
+	int n = 0;
+	return ioctl(fd, FIONREAD, &n) == 0 ? n : 0;
+}
+
 static int valentine_pty_read(int fd, void *buf, int len) {
 	struct pollfd pfd = {fd, POLLIN, 0};
 	int r = poll(&pfd, 1, 200);

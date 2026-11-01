@@ -1,11 +1,13 @@
 # Every push to main is built and tested on all platforms. When the commits since the last
 # tag call for it (feat: minor, fix/perf: patch, BREAKING CHANGE: major), semantic-release
 # tags the version, writes the release notes and attaches the builds.
+# main is the stable channel; beta publishes pre-releases (v1.2.0-beta.1) of what is not
+# ready for it yet, such as the native renderer.
 name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
 
 permissions:
   contents: read

@@ -9,6 +9,8 @@
 #include <windows.h>
 #include <shellapi.h>
 #include "conpty.h"
+#define COBJMACROS
+#include "WebView2.h" /* on the include path via the webview module */
 
 #define VW_TRAY_MSG (WM_APP + 1)
 #define VW_MENU_SHOW 1
@@ -18,9 +20,17 @@ static WNDPROC vw_prev;
 static NOTIFYICONDATAW vw_nid;
 static UINT vw_taskbar_created;
 static int vw_quitting;
+static ICoreWebView2Controller *vw_ctrl;
+
+// vw_visible tells WebView2 whether it can be seen. The webview library never says it is
+// hidden, so without this the page keeps rendering while it sits in the tray or minimized.
+static void vw_visible(BOOL on) {
+	if (vw_ctrl) ICoreWebView2Controller_put_IsVisible(vw_ctrl, on);
+}
 
 static void vw_show(HWND h) {
 	ShowWindow(h, IsIconic(h) ? SW_RESTORE : SW_SHOW); // SW_SHOW keeps a hidden window maximized
+	vw_visible(TRUE);
 	SetForegroundWindow(h);
 }
 
@@ -64,8 +74,12 @@ static LRESULT CALLBACK vw_proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
 	case WM_CLOSE:
 		if (!vw_quitting) {
 			ShowWindow(h, SW_HIDE);
+			vw_visible(FALSE);
 			return 0;
 		}
+		break;
+	case WM_SIZE:
+		vw_visible(wp != SIZE_MINIMIZED);
 		break;
 	case WM_DESTROY:
 		Shell_NotifyIconW(NIM_DELETE, &vw_nid);
@@ -120,6 +134,11 @@ static void valentine_window_op(void *hwnd, int op) {
 	}
 }
 
+// valentine_set_controller hands over the ICoreWebView2Controller; call on the window's thread.
+static void valentine_set_controller(void *ctrl) {
+	vw_ctrl = (ICoreWebView2Controller *)ctrl;
+}
+
 static int valentine_window_zoomed(void *hwnd) {
 	return IsZoomed((HWND)hwnd) != 0;
 }
@@ -130,6 +149,7 @@ static void valentine_maximize(void *w) { (void)w; }
 static void valentine_window_init(void *w) { (void)w; }
 static void valentine_window_op(void *w, int op) { (void)w; (void)op; }
 static int valentine_window_zoomed(void *w) { (void)w; return 0; }
+static void valentine_set_controller(void *c) { (void)c; }
 #endif
 
 #endif

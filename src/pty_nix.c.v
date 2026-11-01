@@ -9,6 +9,7 @@ import sync
 fn C.valentine_pty_open(cols int, rows int, cmdline &char, cwd &char, fd &int, pid &int) int
 fn C.valentine_pty_resize(fd int, cols int, rows int) int
 fn C.valentine_pty_read(fd int, buf voidptr, len int) int
+fn C.valentine_pty_available(fd int) int
 fn C.valentine_pty_write(fd int, buf voidptr, len int) int
 fn C.valentine_pty_wait(pid int) int
 fn C.valentine_pty_kill(pid int)
@@ -74,6 +75,10 @@ fn dim(v int, def int) int {
 fn (mut p Pty) read(buf voidptr, len int) int {
 	n := C.valentine_pty_read(p.fd, buf, len)
 	return if n == 0 && p.exited { -1 } else { n }
+}
+
+fn (mut p Pty) available() int {
+	return C.valentine_pty_available(p.fd)
 }
 
 fn (mut p Pty) write(data string) {

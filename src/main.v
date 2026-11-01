@@ -31,11 +31,17 @@ fn main() {
 	data_dir := app_dir()
 	migrate_from_cockpit(os.join_path(os.dir(data_dir), 'Cockpit'), data_dir)
 	os.mkdir_all(os.join_path(data_dir, 'history')) or { fatal('cannot create ${data_dir}: ${err}') }
+	start_log(data_dir)
+	note('valentine ${app_version} starting')
 	prepare_shell_env()
 	mut store := new_storage(os.join_path(data_dir, 'valentine_state.db')) or {
 		fatal('cannot open state db: ${err}')
 	}
 	unclean := store.begin_session() or { fatal('state db: ${err}') }
+	if unclean {
+		note('the previous run did not exit cleanly')
+	}
+	forget_closed_panes(mut store, data_dir)
 	token := (rand.bytes(16) or { fatal('no secure random source: ${err}') }).hex()
 
 	mut app := &App{
@@ -52,7 +58,8 @@ fn main() {
 	open_window('http://127.0.0.1:${http_port}/?t=${token}&ws=${ws_port}', data_dir)
 	// The window is gone: this is a deliberate exit, not a crash.
 	app.shutdown()
-	store.end_session() or { eprintln('valentine: could not record clean exit: ${err}') }
+	store.end_session() or { note('could not record clean exit: ${err}') }
+	note('valentine exiting')
 	os.rm(session_file()) or {}
 }
 
@@ -115,6 +122,37 @@ fn migrate_from_cockpit(old_dir string, data_dir string) {
 		old_db := os.join_path(data_dir, 'cockpit_state.db${ext}')
 		if os.exists(old_db) {
 			os.mv(old_db, os.join_path(data_dir, 'valentine_state.db${ext}')) or {}
+		}
+	}
+}
+
+// start_log sends stderr (eprintln, V's panics, our notes) to valentine.log: the GUI build
+// has no console, and without a log a failure leaves no trace. One old file is kept.
+fn start_log(data_dir string) {
+	path := os.join_path(data_dir, 'valentine.log')
+	if os.file_size(path) > 1024 * 1024 {
+		os.mv(path, path + '.1', overwrite: true) or {}
+	}
+	$if windows {
+		C._wfreopen(path.to_wide(), 'a'.to_wide(), C.stderr)
+	} $else {
+		C.freopen(&char(path.str), c'a', C.stderr)
+	}
+}
+
+// note writes one timestamped line to the log.
+fn note(msg string) {
+	eprintln('${time.now().format_ss()} ${msg}')
+}
+
+// forget_closed_panes deletes the shell history of panes closed in an earlier run; it is
+// kept until then so that a closed pane can be reopened with its history.
+fn forget_closed_panes(mut store Storage, data_dir string) {
+	ids := (store.load_panes() or { return }).map(it.id)
+	dir := os.join_path(data_dir, 'history')
+	for f in os.ls(dir) or { [] } {
+		if f.ends_with('.txt') && f.all_before_last('.txt') !in ids {
+			os.rm(os.join_path(dir, f)) or {}
 		}
 	}
 }

@@ -11,6 +11,7 @@ fn C.valentine_pty_open(cols int, rows int, cmdline &u16, cwd &u16, hpc &voidptr
 fn C.valentine_pty_resize(hpc voidptr, cols int, rows int) int
 fn C.valentine_pty_close(hpc voidptr)
 fn C.valentine_pty_read(h voidptr, buf voidptr, len int) int
+fn C.valentine_pty_available(h voidptr) int
 fn C.valentine_pty_write(h voidptr, buf voidptr, len int) int
 fn C.valentine_pty_wait(process voidptr)
 fn C.valentine_pty_kill(process voidptr)
@@ -98,6 +99,10 @@ fn dim(v int, def int) int {
 // read returns bytes read, 0 for nothing yet, -1 at EOF.
 fn (mut p Pty) read(buf voidptr, len int) int {
 	return C.valentine_pty_read(p.out_r, buf, len)
+}
+
+fn (mut p Pty) available() int {
+	return C.valentine_pty_available(p.out_r)
 }
 
 fn (mut p Pty) write(data string) {

@@ -206,6 +206,12 @@ static int valentine_pty_read(void *h, void *buf, int len) {
 	return (int)n;
 }
 
+// Bytes already waiting in the pipe, so the reader can batch them into one message.
+static int valentine_pty_available(void *h) {
+	DWORD n = 0;
+	return PeekNamedPipe(h, NULL, 0, NULL, &n, NULL) ? (int)n : 0;
+}
+
 static int valentine_pty_write(void *h, const void *buf, int len) {
 	const char *p = (const char *)buf;
 	DWORD n = 0;

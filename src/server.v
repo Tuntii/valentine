@@ -10,6 +10,11 @@ import time
 
 // Everything the UI needs is compiled in: after a power cut there may be no network.
 const index_html = $embed_file('ui/index.html')
+const app_css = $embed_file('ui/app.css')
+// One script from several files: they share a scope, as if they were one file.
+const app_js = [$embed_file('ui/js/tree.js'), $embed_file('ui/js/core.js'), $embed_file('ui/js/sidebar.js'),
+	$embed_file('ui/js/main.js')].map(it.to_string()).join('
+')
 const xterm_js = $embed_file('ui/vendor/xterm.js')
 const xterm_css = $embed_file('ui/vendor/xterm.css')
 const fit_js = $embed_file('ui/vendor/addon-fit.js')
@@ -20,7 +25,7 @@ const logo_png = $embed_file('../assets/valentine.png')
 
 // ui_config is what the UI may store for itself (sidebar notes, shortcuts, theme);
 // each value is opaque to the backend.
-const ui_config = ['notes', 'shortcuts', 'theme', 'feeds', 'vault', 'worf', 'relay']
+const ui_config = ['notes', 'shortcuts', 'theme', 'colors', 'start_dir', 'http', 'feeds', 'vault', 'worf', 'relay']
 
 // InMsg is every UI -> backend message; each type uses a subset of the fields.
 struct InMsg {
@@ -44,6 +49,7 @@ struct InMsg {
 	value       string
 	method      string // fetch: defaults to GET
 	headers     string // fetch: a JSON object
+	pid         int    // kill_pid
 }
 
 // UiRequest asks the window to do something only it can (read a terminal's screen,
@@ -89,6 +95,7 @@ mut:
 	token   string
 	unclean bool
 	ptys    map[string]&Pty
+	paused  map[string]bool // panes whose output the window asked to hold (flow control); under pty_mu
 	pty_mu  &sync.Mutex       = sync.new_mutex()
 	send_mu &sync.Mutex       = sync.new_mutex()
 	client  &websocket.Client = unsafe { nil }
@@ -141,6 +148,8 @@ fn asset(path string) ?(string, string) {
 	js := 'text/javascript; charset=utf-8'
 	match path {
 		'/' { return index_html.to_string(), 'text/html; charset=utf-8' }
+		'/app.js' { return app_js, js }
+		'/app.css' { return app_css.to_string(), 'text/css; charset=utf-8' }
 		'/vendor/xterm.js' { return xterm_js.to_string(), js }
 		'/vendor/xterm.css' { return xterm_css.to_string(), 'text/css; charset=utf-8' }
 		'/vendor/addon-fit.js' { return fit_js.to_string(), js }
@@ -171,7 +180,7 @@ fn (mut app App) serve_ws(port int) {
 	}) or { panic(err) }
 	server.on_message_ref(on_ws_message, app)
 	server.on_close_ref(on_ws_close, app)
-	server.listen() or { eprintln('valentine: websocket server stopped: ${err}') }
+	server.listen() or { note('websocket server stopped: ${err}') }
 }
 
 fn on_ws_message(mut c websocket.Client, msg &websocket.Message, ref voidptr) ! {
@@ -180,7 +189,7 @@ fn on_ws_message(mut c websocket.Client, msg &websocket.Message, ref voidptr) ! 
 	}
 	mut app := unsafe { &App(ref) }
 	m := json.decode(InMsg, msg.payload.bytestr()) or { return }
-	app.handle(mut c, m) or { eprintln('valentine: ${m.kind} ${m.pane_id}: ${err}') }
+	app.handle(mut c, m) or { note('${m.kind} ${m.pane_id}: ${err}') }
 }
 
 fn on_ws_close(mut c websocket.Client, _ int, _ string, ref voidptr) ! {
@@ -191,6 +200,7 @@ fn on_ws_close(mut c websocket.Client, _ int, _ string, ref voidptr) ! {
 	}
 	if voidptr(app.client) == unsafe { voidptr(&c) } {
 		app.client = unsafe { nil }
+		note('window disconnected')
 	}
 }
 
@@ -222,9 +232,9 @@ fn (mut app App) handle(mut c websocket.Client, m InMsg) ! {
 		'pane_meta' {
 			app.store.save_meta(m.pane_id, m.title, m.startup_cmd, m.autorun, m.shell, m.slot)!
 		}
-		'close' {
+		'close' { // the history file stays until the next start: the pane may be reopened
+			note('pane ${m.pane_id} closed')
 			app.store.delete_pane(m.pane_id)!
-			os.rm(app.history_file(m.pane_id)) or {}
 			mut p := app.find_pty(m.pane_id) or { return }
 			p.kill()
 		}
@@ -246,6 +256,19 @@ fn (mut app App) handle(mut c websocket.Client, m InMsg) ! {
 		'layout' {
 			app.store.set_config('layout', m.layout)!
 		}
+		'git_branch' { // body: the branch at cwd, '' outside a repository
+			app.send(json.encode(FetchMsg{
+				kind:   'fetched'
+				req_id: m.req_id
+				body:   git_branch(m.cwd)
+			}).bytes(), .text_frame)
+		}
+		'ports' {
+			spawn app.list_ports(m.req_id)
+		}
+		'kill_pid' {
+			spawn app.kill_pid(m.req_id, m.pid)
+		}
 		'fetch' { // data: the request body, base64
 			spawn app.fetch_url(m.req_id, m.url, m.method, m.headers, m.data)
 		}
@@ -254,6 +277,18 @@ fn (mut app App) handle(mut c websocket.Client, m InMsg) ! {
 				return error('unknown config ${m.name}')
 			}
 			app.store.set_config('ui_' + m.name, m.value)!
+		}
+		'pause', 'resume' { // flow control: the window's terminal is behind / caught up
+			app.pty_mu.@lock()
+			if m.kind == 'pause' {
+				app.paused[m.pane_id] = true
+			} else {
+				app.paused.delete(m.pane_id)
+			}
+			app.pty_mu.unlock()
+		}
+		'log' { // the UI's errors and events
+			note('ui: ${m.data#[..2000]}')
 		}
 		'mcp_result' {
 			app.req_mu.@lock()
@@ -275,6 +310,7 @@ fn (mut app App) attach(mut c websocket.Client) ! {
 	for mut p in panes {
 		p.running = p.id in app.ptys
 	}
+	app.paused.clear() // a new window has nothing queued; a stale pause would freeze a pane
 	app.pty_mu.unlock()
 	mut config := map[string]string{}
 	for name in ui_config {
@@ -298,6 +334,7 @@ fn (mut app App) attach(mut c websocket.Client) ! {
 	// it has not created yet.
 	c.write_string(state)!
 	app.client = unsafe { &c } // the websocket server heap-allocates every Client
+	note('window attached, ${panes.len} panes')
 }
 
 fn (mut app App) spawn_pane(id string, cols int, rows int) ! {
@@ -310,7 +347,8 @@ fn (mut app App) spawn_pane(id string, cols int, rows int) ! {
 	}
 	mut cwd, shell := app.store.pane_launch(id)
 	if cwd == '' || !os.is_dir(cwd) {
-		cwd = os.home_dir()
+		start := app.store.get_config('ui_start_dir') // Settings → New terminals start in
+		cwd = if start != '' && os.is_dir(start) { start } else { os.home_dir() }
 	}
 	// Inherited by the shell and everything it starts, so Claude Code's hooks know which
 	// pane they run in. Spawns are serialized by pty_mu, so the variable cannot race.
@@ -328,6 +366,14 @@ fn valid_id(id string) bool {
 	return id.len >= 1 && id.len <= 32 && id.bytes().all(it.is_alnum() || it in [`-`, `_`])
 }
 
+fn (mut app App) is_paused(id string) bool {
+	app.pty_mu.@lock()
+	defer {
+		app.pty_mu.unlock()
+	}
+	return app.paused[id]
+}
+
 fn (mut app App) find_pty(id string) ?&Pty {
 	app.pty_mu.@lock()
 	defer {
@@ -343,11 +389,24 @@ fn (mut app App) find_pty(id string) ?&Pty {
 // UTF-8 sequences split across reads intact; xterm.js decodes them as a stream.
 fn (mut app App) pump(id string, mut p Pty) {
 	waiter := spawn p.close_on_exit()
-	mut buf := []u8{len: 32 * 1024}
+	mut buf := []u8{len: 64 * 1024}
 	for {
-		n := p.read(buf.data, buf.len)
+		// The window asked for a break: its terminal is behind. Not reading makes the
+		// pty's buffer fill, which slows the program down instead of the window.
+		for app.is_paused(id) {
+			time.sleep(10 * time.millisecond)
+		}
+		mut n := p.read(buf.data, buf.len)
 		if n < 0 {
 			break
+		}
+		// Take what else is already waiting: one frame instead of many when output floods.
+		for n < buf.len && p.available() > 0 {
+			more := p.read(unsafe { &u8(buf.data) + n }, buf.len - n)
+			if more <= 0 {
+				break
+			}
+			n += more
 		}
 		if n == 0 {
 			continue
@@ -363,23 +422,29 @@ fn (mut app App) pump(id string, mut p Pty) {
 	code := p.release()
 	app.pty_mu.@lock()
 	app.ptys.delete(id)
+	app.paused.delete(id)
 	app.pty_mu.unlock()
+	note('pane ${id}: shell exited with code ${code}')
 	app.send(json.encode(ExitMsg{ kind: 'exit', pane_id: id, code: code }).bytes(), .text_frame)
 }
 
 // send delivers to the window; false when no window is connected.
 fn (mut app App) send(data []u8, code websocket.OPCode) bool {
 	app.send_mu.@lock()
-	defer {
-		app.send_mu.unlock()
-	}
 	if isnil(app.client) {
+		app.send_mu.unlock()
 		return false
 	}
 	app.client.write(data, code) or {
+		mut c := app.client
 		app.client = unsafe { nil }
+		app.send_mu.unlock()
+		// Hang up too, or the window stays connected but never gets output again and
+		// never reconnects. Outside send_mu: close runs on_ws_close, which takes it.
+		c.close(1011, 'write failed') or {}
 		return false
 	}
+	app.send_mu.unlock()
 	return true
 }
 

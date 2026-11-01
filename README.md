@@ -60,14 +60,15 @@ To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md#building).
 
 | | |
 |---|---|
-| Split right / down | `Alt+Shift+=` / `Alt+Shift+-` (`Alt+Shift+D` picks the longer side) |
+| Split right / down | `Alt+Shift+=` (or `Alt+Shift+D`) / `Alt+Shift+-` |
 | Move between panes | `Alt+Arrow` |
 | Resize | `Alt+Shift+Arrow`, or drag a divider |
 | Maximize / restore | `Ctrl+Shift+Enter` |
-| Close pane | `Ctrl+Shift+W` |
+| Close / reopen pane | `Ctrl+Shift+W` / `Ctrl+Shift+T` |
 | Copy / paste | `Ctrl+C` with a selection / `Ctrl+V` (`Cmd` on macOS) |
 | Open a link | `Ctrl+Click` (`Cmd+Click` on macOS) |
-| Everything else | right-click a pane: rename, startup command, shell, layouts, start at login |
+| Everything else | right-click a pane: rename, startup command, shell, layouts, start at login, `git pull` / `git merge` in a repo, open the local server its command started |
+| Ports, HTTP requests | sidebar (`Ctrl+Shift+B`): who listens on which port (open / kill), a small request runner |
 
 Double-click a pane's label to rename it.
 

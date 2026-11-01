@@ -194,3 +194,77 @@ fn test_fetch_forwards_method_headers_and_body() ! {
 		assert false, 'non-http URL fetched'
 	}
 }
+
+fn test_git_branch() ! {
+	root := os.join_path(os.temp_dir(), 'valentine_git_test')
+	os.rmdir_all(root) or {}
+	defer {
+		os.rmdir_all(root) or {}
+	}
+	os.mkdir_all(os.join_path(root, 'repo', '.git'))!
+	os.mkdir_all(os.join_path(root, 'repo', 'src', 'deep'))!
+	os.mkdir_all(os.join_path(root, 'plain'))!
+	os.mkdir_all(os.join_path(root, 'wt'))!
+	os.write_file(os.join_path(root, 'repo', '.git', 'HEAD'), 'ref: refs/heads/feat/x
+')!
+	os.write_file(os.join_path(root, 'wt', '.git'), 'gitdir: ../repo/.git
+')! // worktree: .git is a file
+	assert git_branch(os.join_path(root, 'repo')) == 'feat/x'
+	assert git_branch(os.join_path(root, 'repo', 'src', 'deep')) == 'feat/x'
+	assert git_branch(os.join_path(root, 'wt')) == 'feat/x'
+	assert git_branch(os.join_path(root, 'plain')) == ''
+	assert git_branch('') == ''
+	assert git_branch(os.join_path(root, 'missing')) == ''
+	os.write_file(os.join_path(root, 'repo', '.git', 'HEAD'), '71c76e4a0b1c2d3e4f
+')! // detached
+	assert git_branch(os.join_path(root, 'repo')) == '71c76e4'
+}
+
+fn test_parse_ports() {
+	ns := 'Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+' +
+		'  TCP    0.0.0.0:135            0.0.0.0:0              DİNLEME         1100
+' +
+		'  TCP    0.0.0.0:445            0.0.0.0:0              LISTENING       4
+' +
+		'  TCP    127.0.0.1:5173         0.0.0.0:0              LISTENING       8812
+' +
+		'  TCP    127.0.0.1:5173         127.0.0.1:50000        ESTABLISHED     8812
+' +
+		'  TCP    [::]:3000              [::]:0                 LISTENING       9000
+' +
+		'  TCP    [::1]:5173             [::]:0                 LISTENING       8812
+' +
+		'  UDP    0.0.0.0:5353           *:*                                    2200
+'
+	rows := parse_netstat(ns)
+	assert rows.map('${it.port}/${it.pid}') == ['135/1100', '3000/9000', '5173/8812']
+	names := parse_tasklist('"System Idle Process","0","Services","0","8 K"
+"node.exe","8812","Console","1","90.000 K"
+')
+	assert names[8812] == 'node.exe'
+	lsof := 'p501
+cnode
+n*:3000
+n[::1]:3000
+p777
+cpython3
+n127.0.0.1:8000
+'
+	assert parse_lsof(lsof).map('${it.port}/${it.pid}/${it.name}') == ['3000/501/node', '8000/777/python3']
+}
+
+fn test_ui_assets_are_one_script() {
+	js, ctype := asset('/app.js') or { panic('no /app.js') }
+	assert ctype.starts_with('text/javascript')
+	assert js.starts_with("'use strict'") // strict mode must cover every file
+	for name in ['function sanitize(', 'function connect(', 'function loadPorts(', 'function keys('] {
+		assert js.contains(name), name
+	}
+	css, _ := asset('/app.css') or { panic('no /app.css') }
+	assert css.contains('#root')
+	page, _ := asset('/') or { panic('no page') }
+	assert page.contains('src="app.js"') && !page.contains('<style>')
+}

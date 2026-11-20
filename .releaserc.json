@@ -8,7 +8,8 @@
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "dist/valentine-windows-x64.zip", "label": "Windows (x64)" },
+          { "path": "dist/valentine-windows-x64-setup.exe", "label": "Windows installer (x64)" },
+          { "path": "dist/valentine-windows-x64.zip", "label": "Windows (x64, portable)" },
           { "path": "dist/valentine-macos-arm64.tar.gz", "label": "macOS (Apple silicon)" },
           { "path": "dist/valentine-linux-x64.tar.gz", "label": "Linux (x64)" }
         ]

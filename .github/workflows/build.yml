@@ -97,8 +97,20 @@ jobs:
             tar czf "../${{ matrix.asset }}" *
           fi
 
+      # The same dist/ as the zip, as valentine-windows-x64-setup.exe.
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE) { exit 1 } }
+          & $iscc /Qp "/DAppVersion=${{ inputs.version }}" installer/valentine.iss
+          if ($LASTEXITCODE) { exit 1 }
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            valentine-windows-x64-setup.exe
           if-no-files-found: error

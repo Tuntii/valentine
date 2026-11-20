@@ -17,6 +17,7 @@ function showSideTab(tab) {
   }
   if (tab === 'feeds' && !feedCache[feedPick.value]) loadFeed();
   if (tab === 'ports') loadPorts();
+  if (tab === 'todo') renderTodos();
 }
 
 let notesTimer = 0;
@@ -53,6 +54,135 @@ function runShortcut(s) {
   toggleSide(false);
   splitPane(active || panes[0], null, { title: s.name, cwd: s.cwd || '', pendingCommand: s.command });
 }
+
+// ---- todo board: per-project tasks, kept current by the user and by agents (todo_* MCP tools) ----
+
+const TODO_STATUS = { todo: 'To do', in_progress: 'In progress', done: 'Done' };
+const TODO_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' };
+let todos = []; // { id, project, title, status, note, pane? (the agent it was handed to) }
+const TASK_DRAG = 'application/x-valentine-task';
+const projectOf = cwd => String(cwd || '').split(/[\\/]/).filter(Boolean).pop() || '';
+
+function saveTodos() {
+  send({ type: 'config', name: 'todos', value: JSON.stringify(todos) });
+  renderTodos();
+}
+
+function renderTodos() {
+  const input = $('#todoProject'), box = $('#todoList');
+  if (!input.value) input.value = projectOf(active?.cwd) || todos[0]?.project || '';
+  $('#todoProjects').replaceChildren(...[...new Set(todos.map(t => t.project))].map(p => el('option', '', { value: p })));
+  const mine = todos.filter(t => t.project === input.value.trim());
+  if (!mine.length) {
+    return box.replaceChildren(el('div', 'empty', { textContent: 'No tasks in this project. Agents in a pane can add and move them too (todo_* tools); their project is the pane\'s folder name.' }));
+  }
+  box.replaceChildren(...Object.entries(TODO_STATUS).flatMap(([status, label]) => {
+    const list = mine.filter(t => t.status === status);
+    return list.length ? [el('h4', '', { textContent: `${label} · ${list.length}` }), ...list.map(todoRow)] : [];
+  }));
+}
+
+function todoRow(t) {
+  const next = TODO_NEXT[t.status], text = el('div');
+  text.append(el('b', '', { textContent: `#${t.id}  ${t.title}` }));
+  if (t.note) text.append(el('code', '', { textContent: t.note }));
+  const agent = t.status !== 'done' && byId(t.pane);
+  if (agent) text.append(el('code', agent.badge.className, { textContent: `→ ${agent.title}  ${agent.badge.textContent || 'idle'}` }));
+  const row = el('div', 'item', { title: [t.title, t.note].filter(Boolean).join('\n') });
+  row.append(text);
+  if (t.status === 'done') row.style.opacity = 0.6;
+  else {
+    row.draggable = true;
+    row.ondragstart = e => e.dataTransfer.setData(TASK_DRAG, String(t.id));
+    row.append(el('button', '', {
+      textContent: '▶', title: 'Hand to an agent (or drag the card onto its pane)', ariaLabel: `Hand ${t.title} to an agent`,
+      onclick: e => {
+        const agents = panes.filter(p => p.inClaude);
+        if (!agents.length) return flash('No pane is running Claude Code');
+        const r = e.currentTarget.getBoundingClientRect();
+        showMenu(r.left, r.bottom + 4, ...agents.map(p => item(p.title, p.badge.textContent, () => assignTodo(t, p))));
+      },
+    }));
+  }
+  row.append(
+    el('button', '', { textContent: next === 'todo' ? '↺' : '→', title: `Move to ${TODO_STATUS[next]}`, onclick: () => { t.status = next; saveTodos(); } }),
+    el('button', '', { textContent: '✕', title: 'Delete', ariaLabel: `Delete ${t.title}`, onclick: () => { todos.splice(todos.indexOf(t), 1); saveTodos(); } }));
+  return row;
+}
+
+// assignTodo hands task t to the Claude in pane p: types it in as a prompt and marks the
+// card in progress. The agent closes the card itself (todo_update); Valentine never guesses
+// "done" from a Stop, which also fires when the agent stops to ask something.
+function assignTodo(t, p) {
+  if (!p.inClaude) return flash(`${p.title} is not running Claude Code`);
+  t.pane = p.id;
+  t.status = 'in_progress';
+  saveTodos();
+  typeToAgent(p, `[Valentine task #${t.id}] ${t.title}${t.note ? '\n' + t.note : ''}\n\n` +
+    `When it is finished, call todo_update with id ${t.id}, status done and a one-line note of what you did. ` +
+    'If you get stuck or need me, keep it in_progress and put what is blocking it in the note.');
+}
+
+function addTodo(project, title, status = 'todo', note = '') {
+  const t = { id: todos.reduce((m, t) => Math.max(m, t.id), 0) + 1, project, title, status, note };
+  todos.push(t);
+  saveTodos();
+  return t;
+}
+
+$('#todoProject').oninput = renderTodos;
+$('#todoForm').onsubmit = e => {
+  e.preventDefault();
+  const title = e.target.elements.namedItem('title').value.trim(), project = $('#todoProject').value.trim();
+  if (!title || !project) return;
+  addTodo(project, title);
+  e.target.reset();
+};
+
+// Agents' arguments are checked before anything changes: a bad call must not half-apply.
+function todoText(v, what) {
+  const s = String(v ?? '').trim();
+  if (!s) throw new Error(`${what} must not be empty`);
+  return s;
+}
+function todoStatus(v) {
+  if (!Object.hasOwn(TODO_STATUS, v)) throw new Error(`status must be one of: ${Object.keys(TODO_STATUS).join(', ')}`);
+  return v;
+}
+function todoProject(project, from) {
+  const p = String(project ?? '').trim() || projectOf(from?.cwd);
+  if (!p) throw new Error('project is required (you are not in a Valentine pane)');
+  return p;
+}
+function todoFind(id) {
+  const t = todos.find(t => t.id === Number(id));
+  if (!t) throw new Error(`no task #${id}; call todo_list`);
+  return t;
+}
+
+Object.assign(MCP_TOOLS, {
+  todo_list: ({ project }, from) => {
+    const p = todoProject(project, from);
+    return JSON.stringify(p === '*' ? todos : todos.filter(t => t.project === p), null, 1);
+  },
+  todo_add: ({ title, project, status = 'todo', note = '' }, from) =>
+    JSON.stringify(addTodo(todoProject(project, from), todoText(title, 'title'), todoStatus(status), String(note))),
+  todo_update: ({ id, status, title, note, project }) => {
+    const t = todoFind(id), next = { ...t };
+    if (status !== undefined) next.status = todoStatus(status);
+    if (title !== undefined) next.title = todoText(title, 'title');
+    if (project !== undefined) next.project = todoText(project, 'project');
+    if (note !== undefined) next.note = String(note);
+    Object.assign(t, next);
+    saveTodos();
+    return JSON.stringify(t);
+  },
+  todo_delete: ({ id }) => {
+    todos.splice(todos.indexOf(todoFind(id)), 1);
+    saveTodos();
+    return 'deleted';
+  },
+});
 
 // applyTheme sets theme `name` with the user's colour overrides on top.
 function applyTheme(name, persist = true) {

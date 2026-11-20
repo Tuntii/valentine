@@ -54,6 +54,7 @@ fn main() {
 	spawn app.serve_ws(ws_port)
 	spawn app.serve_http(http_port)
 	wait_for_port(http_port)
+	spawn app.remote_mcp()
 
 	open_window('http://127.0.0.1:${http_port}/?t=${token}&ws=${ws_port}', data_dir)
 	// The window is gone: this is a deliberate exit, not a crash.

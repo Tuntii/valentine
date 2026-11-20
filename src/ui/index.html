@@ -30,6 +30,7 @@
 <aside id="side" aria-label="Sidebar" inert>
   <nav>
     <button data-tab="notes">Notes</button>
+    <button data-tab="todo">Todo</button>
     <button data-tab="shortcuts">Shortcuts</button>
     <button data-tab="vault">Passwords</button>
     <hr>
@@ -43,6 +44,15 @@
   </nav>
   <section data-tab="notes">
     <textarea id="notes" spellcheck="false" placeholder="Anything you need to remember. Saved as you type."></textarea>
+  </section>
+  <section data-tab="todo" hidden>
+    <input id="todoProject" list="todoProjects" placeholder="Project" spellcheck="false" aria-label="Project">
+    <datalist id="todoProjects"></datalist>
+    <div id="todoList"></div>
+    <form class="add" id="todoForm">
+      <input name="title" placeholder="New task" required>
+      <button>Add</button>
+    </form>
   </section>
   <section data-tab="shortcuts" hidden>
     <div id="shortcutList"></div>

@@ -11,6 +11,7 @@ function searchItems() {
     { text: 'Split down', hint: 'Alt+Shift+-', run: () => splitPane(active, 'col') },
     ...closed.slice(-1).map(r => ({ text: `Reopen ${r.title}`, hint: 'Ctrl+Shift+T', run: reopenPane })),
     { text: 'Notes', hint: 'Sidebar', run: () => toggleSide(true, 'notes') },
+    { text: 'Todo', hint: 'Sidebar', run: () => toggleSide(true, 'todo') },
     { text: 'Shortcuts', hint: 'Sidebar', run: () => toggleSide(true, 'shortcuts') },
     { text: 'Passwords', hint: 'Sidebar', run: () => toggleSide(true, 'vault') },
     { text: 'Feeds', hint: 'Sidebar', run: () => toggleSide(true, 'feeds') },
@@ -75,6 +76,12 @@ function keys(e) {
     if (code === 'KeyK') return findInput.focus(), true;
     if (code === 'KeyB') return toggleSide(), true;
     return false;
+  }
+  // Ctrl+1..9: the Nth pane in layout order. By code, so every keyboard layout works.
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(code)) {
+    const p = panes[code.slice(5) - 1];
+    if (p && p !== active) { unmaximize(); focusPane(p); }
+    return !!p; // no such pane: the key goes to the terminal as before
   }
   if (!e.altKey || e.ctrlKey) return false;
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };

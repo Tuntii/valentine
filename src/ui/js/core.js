@@ -4,6 +4,7 @@ const scheme = (background, foreground, accent, normal, bright) => ({
   accent,
   term: {
     background, foreground, cursor: foreground, cursorAccent: background, selectionBackground: '#ffffff40',
+    scrollbarSliderBackground: '#ffffff1a', scrollbarSliderHoverBackground: '#ffffff33', scrollbarSliderActiveBackground: '#ffffff4d',
     ...Object.fromEntries(ANSI.map((c, i) => [c, normal[i]])),
     ...Object.fromEntries(ANSI.map((c, i) => ['bright' + c[0].toUpperCase() + c.slice(1), bright[i]])),
   },
@@ -153,6 +154,8 @@ function restore(m) {
   if (!Array.isArray(shortcuts)) shortcuts = [];
   $('#notes').value = cfg.notes || '';
   renderShortcuts();
+  todos = parseList(cfg.todos, []);
+  renderTodos();
   feeds = parseList(cfg.feeds, DEFAULT_FEEDS);
   renderFeedPick();
   vault.stored = parseList(cfg.vault, null);
@@ -211,6 +214,14 @@ function createPane(r) {
   p.el.addEventListener('mousedown', () => setActive(p));
   p.el.addEventListener('contextmenu', e => { e.preventDefault(); setActive(p); openMenu(p, e.clientX, e.clientY); });
   p.label.ondblclick = () => rename(p);
+  // A todo card dropped on the pane hands the task to its agent (see assignTodo).
+  p.el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes(TASK_DRAG)) e.preventDefault(); });
+  p.el.addEventListener('drop', e => {
+    const id = e.dataTransfer.getData(TASK_DRAG);
+    if (!id) return;
+    e.preventDefault();
+    assignTodo(todoFind(id), p);
+  });
   if (p.inClaude) setStatus(p, 'claude');
   showLabel(p);
   return p;
@@ -317,10 +328,9 @@ function input(p, d) {
     return;
   }
   send({ type: 'input', pane_id: p.id, data: d });
-  if (d.includes('\r')) {
-    save(p);
-    commandStarted(p);
-  }
+  // No save here: serializing the scrollback on every Enter stalled the UI; the echo
+  // marks the pane dirty and the idle timer in main.js saves it.
+  if (d.includes('\r')) commandStarted(p);
 }
 
 function exited(p, code) {
@@ -389,6 +399,7 @@ function setStatus(p, status, detail) {
     claude: '✳ Claude', 'claude-busy': '✳ working', 'claude-wait': '✳ your turn', 'claude-ask': '✳ needs you',
   }[status] || '';
   renderTabs();
+  if (todos.some(t => t.pane === p.id)) renderTodos(); // its cards show the agent's state
 }
 
 // ---- Claude Code (events from its hooks, see claude.v) -----------------------
@@ -713,14 +724,10 @@ const MCP_TOOLS = {
     // A waits on B while B asks A would hang both until their timeouts.
     if (p.asking) throw new Error(`${p.title} is waiting on another agent itself; read_pane it or try later`);
     const secs = Math.min(Math.max(5, timeout_seconds | 0), 600);
-    // In Claude a raw LF is a newline in the prompt; elsewhere a newline could submit early.
-    const body = p.inClaude ? String(message).replace(/\r\n?/g, '\n') : String(message).replace(/\s*[\r\n]+\s*/g, ' ');
     if (from) from.asking = true;
     try {
       const stops = p.stopCount || 0, sentAt = Date.now();
-      send({ type: 'input', pane_id: p.id, data: `[Valentine message from ${from ? from.title : 'an agent'}] ${body}` });
-      await sleep(300); // some TUIs treat text and Enter arriving together as a paste
-      send({ type: 'input', pane_id: p.id, data: '\r' });
+      await typeToAgent(p, `[Valentine message from ${from ? from.title : 'an agent'}] ${message}`);
       const deadline = sentAt + secs * 1000;
       for (;;) {
         await sleep(500);
@@ -738,6 +745,15 @@ const MCP_TOOLS = {
 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// typeToAgent types a message into the agent in pane p and submits it.
+async function typeToAgent(p, text) {
+  // In Claude a raw LF is a newline in the prompt; elsewhere a newline could submit early.
+  const body = p.inClaude ? String(text).replace(/\r\n?/g, '\n') : String(text).replace(/\s*[\r\n]+\s*/g, ' ');
+  send({ type: 'input', pane_id: p.id, data: body });
+  await sleep(300); // some TUIs treat text and Enter arriving together as a paste
+  send({ type: 'input', pane_id: p.id, data: '\r' });
+}
 
 function screenText(p, lines = 80) {
   const end = p.term.buffer.active.baseY + p.term.rows;
@@ -835,12 +851,6 @@ function unmaximize() {
 function openMenu(p, x, y) {
   // Git commands are typed into the shell, so only a shell idle at its prompt gets them.
   const git = p.branch && p.running && p.integrated && !p.busySince && !p.inClaude;
-  closeMenu();
-  const item = (text, kbd, fn) => {
-    const b = el('button', '', { onclick: () => { closeMenu(); fn(); } });
-    b.append(el('span', '', { textContent: text }), el('span', 'kbd', { textContent: kbd }));
-    return b;
-  };
   const sep = () => el('hr');
   const chips = (caption, options, current, pick) => {
     const row = el('div', 'chips');
@@ -850,8 +860,7 @@ function openMenu(p, x, y) {
     }
     return row;
   };
-  menu = el('div', 'menu', { role: 'menu' });
-  menu.append(
+  showMenu(x, y,
     item('Split right', 'Alt+Shift+=', () => splitPane(p, 'row')),
     item('Split down', 'Alt+Shift+-', () => splitPane(p, 'col')),
     sep(),
@@ -881,6 +890,19 @@ function openMenu(p, x, y) {
     ...(closed.length ? [item('Reopen closed pane', 'Ctrl+Shift+T', reopenPane)] : []),
     item('Close pane', 'Ctrl+Shift+W', () => closePane(p)),
   );
+}
+
+// item is a menu entry that closes the menu and runs fn.
+function item(text, kbd, fn) {
+  const b = el('button', '', { onclick: () => { closeMenu(); fn(); } });
+  b.append(el('span', '', { textContent: text }), el('span', 'kbd', { textContent: kbd }));
+  return b;
+}
+
+function showMenu(x, y, ...entries) {
+  closeMenu();
+  menu = el('div', 'menu', { role: 'menu' });
+  menu.append(...entries);
   document.body.append(menu);
   const r = menu.getBoundingClientRect();
   menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';

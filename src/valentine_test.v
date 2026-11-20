@@ -124,16 +124,29 @@ fn test_claude_session_column() ! {
 }
 
 fn test_mcp_protocol() {
-	init := mcp_handle('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
+	init := mcp_handle('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}', '')
 	assert init.contains('"id":1,') && init.contains('"protocolVersion":"2025-06-18"')
-	assert mcp_handle('{"jsonrpc":"2.0","method":"notifications/initialized"}') == ''
-	list := mcp_handle('{"jsonrpc":"2.0","id":"a","method":"tools/list"}')
+	assert init.contains('"instructions":') && !init.contains('\n')
+	assert mcp_handle('{"jsonrpc":"2.0","method":"notifications/initialized"}', '') == ''
+	list := mcp_handle('{"jsonrpc":"2.0","id":"a","method":"tools/list"}', '')
 	assert !list.contains('\n') // one JSON-RPC message per line
-	for tool in ['list_panes', 'read_pane', 'run_command', 'send_text', 'open_pane', 'ask_agent', 'close_pane'] {
+	for tool in ['list_panes', 'read_pane', 'run_command', 'send_text', 'open_pane', 'ask_agent', 'close_pane', 'todo_list', 'todo_add', 'todo_update', 'todo_delete'] {
 		assert list.contains('"name": "${tool}"')
 	}
-	assert mcp_handle('{"jsonrpc":"2.0","id":2,"method":"x"}').contains('-32601')
-	assert mcp_handle('not json').contains('-32700')
+	assert mcp_handle('{"jsonrpc":"2.0","id":2,"method":"x"}', '').contains('-32601')
+	assert mcp_handle('not json', '').contains('-32700')
+}
+
+fn test_open_tasks_lists_unfinished_tasks_of_the_project() {
+	todos := '[{"id":1,"project":"valentine","title":"Installer","status":"todo","note":""},' +
+		'{"id":2,"project":"valentine","title":"Ship","status":"done","note":""},' +
+		'{"id":3,"project":"bones","title":"DNS","status":"todo","note":""},' +
+		'{"id":4,"project":"valentine","title":"Test fit","status":"in_progress","note":"after xterm 6"}]'
+	out := open_tasks(todos, 'valentine')
+	assert out.contains('#1 [todo] Installer') && out.contains('#4 [in_progress] Test fit (after xterm 6)')
+	assert !out.contains('Ship') && !out.contains('DNS')
+	assert open_tasks(todos, 'nothing') == ''
+	assert open_tasks('not json', 'valentine') == ''
 }
 
 fn test_panes_are_not_claude_child_sessions() {

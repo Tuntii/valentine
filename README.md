@@ -50,7 +50,7 @@ from it.
 
 | | |
 |---|---|
-| **Windows** | `valentine-windows-x64.zip`. Ships with Microsoft's current ConPTY (`conpty.dll` + `OpenConsole.exe`), which Windows 10's built-in one is years behind; keep them next to the exe. Uses the WebView2 runtime, or an Edge app window without it. |
+| **Windows** | `valentine-windows-x64-setup.exe`: installs for your user without an admin prompt, adds a Start menu entry and an uninstaller; your panes and settings (`%APPDATA%\Valentine`) survive upgrades. Or the portable `valentine-windows-x64.zip`. Both ship with Microsoft's current ConPTY (`conpty.dll` + `OpenConsole.exe`), which Windows 10's built-in one is years behind; keep them next to the exe. Uses the WebView2 runtime, or an Edge app window without it. |
 | **macOS** | `valentine-macos-arm64.tar.gz` (Apple silicon). The binary is not notarized yet: run `xattr -d com.apple.quarantine valentine` once. |
 | **Linux** | `valentine-linux-x64.tar.gz`. Needs GTK 3 and WebKitGTK 4.1: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0` (Debian/Ubuntu), `sudo dnf install webkit2gtk4.1` (Fedora). |
 
@@ -61,7 +61,7 @@ To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md#building).
 | | |
 |---|---|
 | Split right / down | `Alt+Shift+=` (or `Alt+Shift+D`) / `Alt+Shift+-` |
-| Move between panes | `Alt+Arrow` |
+| Move between panes | `Alt+Arrow`, or `Ctrl+1`…`Ctrl+9` for the Nth pane (left to right, top to bottom) |
 | Resize | `Alt+Shift+Arrow`, or drag a divider |
 | Maximize / restore | `Ctrl+Shift+Enter` |
 | Close / reopen pane | `Ctrl+Shift+W` / `Ctrl+Shift+T` |
@@ -85,6 +85,15 @@ opencode mcp add --global valentine -- "/path/to/valentine" mcp
 
 Tools: `list_panes`, `read_pane`, `run_command`, `send_text`, `open_pane`, `close_pane` and
 `ask_agent`, which types a message into another agent's pane and returns its answer.
+`todo_list`, `todo_add`, `todo_update` and `todo_delete` keep a per-project task board
+(to do → in progress → done) that you also see and edit under Sidebar → Todo; an agent's
+project defaults to the folder name of its pane. Agents are told to file what is left before
+they finish, and a new Claude session in a pane starts knowing the project's open tasks.
+
+Remote agents (a claude.ai connector) reach the same tools through the relay in `relay/`: set
+`MCP_SECRET` on the server, set the relay token under Sidebar → Relay, and add
+`https://<mcp host>/mcp/<MCP_SECRET>` as the connector URL. Valentine must be running. Anyone
+with that URL can run commands on your PC.
 
 ## Where things live
 

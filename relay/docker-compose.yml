@@ -1,0 +1,22 @@
+# Webhook relay and remote MCP bridge for Valentine. .env holds RELAY_TOKEN and, to serve
+# mcp.rustapi.cloud, MCP_SECRET; /srv/valentine-relay must be writable by uid 65534
+# (the container's user).
+services:
+  relay:
+    build: .
+    image: valentine-relay:latest
+    container_name: valentine-relay
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /srv/valentine-relay:/data
+    ports:
+      - "127.0.0.1:3097:8000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

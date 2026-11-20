@@ -25,7 +25,7 @@ const logo_png = $embed_file('../assets/valentine.png')
 
 // ui_config is what the UI may store for itself (sidebar notes, shortcuts, theme);
 // each value is opaque to the backend.
-const ui_config = ['notes', 'shortcuts', 'theme', 'colors', 'start_dir', 'http', 'feeds', 'vault', 'worf', 'relay']
+const ui_config = ['notes', 'shortcuts', 'theme', 'colors', 'start_dir', 'http', 'feeds', 'vault', 'worf', 'relay', 'todos']
 
 // InMsg is every UI -> backend message; each type uses a subset of the fields.
 struct InMsg {

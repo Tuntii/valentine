@@ -31,7 +31,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .pane.max { position: fixed; inset: calc(var(--bar) + 7px) 0 0 0; z-index: 10; border-top: 1px solid var(--line); }
 /* content-box: FitAddon reads this element's height and would count the padding as rows. */
 .term { flex: 1; min-width: 0; min-height: 0; padding: 10px 0 6px 10px; box-sizing: content-box; }
-.xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
+/* Panes behind a maximized one are not drawn at all: xterm pauses rendering while its
+   screen is out of view and repaints once it is back. Their output is still parsed. */
+#root:has(.pane.max) .pane:not(.max) { display: none; }
 .label { position: absolute; top: 0; right: 14px; z-index: 4; transform: translateY(-50%);
   max-width: calc(100% - 28px); padding: 0 6px; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; background: var(--bg); color: var(--dim); font-size: 12px; line-height: 14px;
@@ -176,3 +178,4 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .color { display: flex; align-items: center; gap: 8px; }
 #side .color input { flex: none; width: 28px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
 .swatch i { width: 10px; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .15); }
+.item[draggable="true"] { cursor: grab; }
